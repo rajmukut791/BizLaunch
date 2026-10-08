@@ -8,15 +8,22 @@ const mongoose = require('mongoose');
 const app = express();
 app.disable('x-powered-by');
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-site' } }));
-app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
+const allowedOrigins = new Set(
+  [process.env.CLIENT_URL, ...(process.env.CLIENT_ORIGINS || '').split(',')]
+    .filter(Boolean)
+    .map((value) => new URL(value.trim()).origin),
+);
+app.use(
+  cors({
+    origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)),
+    credentials: true,
+  }),
+);
 app.use(cookieParser());
 app.use((req, res, next) => {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
     const origin = req.get('origin');
-    if (
-      (origin && origin !== process.env.CLIENT_URL) ||
-      req.get('sec-fetch-site') === 'cross-site'
-    ) {
+    if ((origin && !allowedOrigins.has(origin)) || req.get('sec-fetch-site') === 'cross-site') {
       return res.status(403).json({ success: false, message: 'Request origin is not allowed' });
     }
     if (
@@ -61,12 +68,10 @@ app.get('/api/health', (req, res) =>
   }),
 );
 app.get('/api/ready', (req, res) =>
-  res
-    .status(mongoose.connection.readyState === 1 ? 200 : 503)
-    .json({
-      success: mongoose.connection.readyState === 1,
-      database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    }),
+  res.status(mongoose.connection.readyState === 1 ? 200 : 503).json({
+    success: mongoose.connection.readyState === 1,
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+  }),
 );
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api', require('./routes/commerceRoutes'));
@@ -78,13 +83,11 @@ app.use((error, req, res, next) => {
       .status(409)
       .json({ success: false, message: 'A record with these details already exists' });
   if (error.name === 'ValidationError' || error.name === 'CastError')
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message:
-          error.name === 'CastError' ? 'Invalid record ID' : Object.values(error.errors)[0].message,
-      });
+    return res.status(400).json({
+      success: false,
+      message:
+        error.name === 'CastError' ? 'Invalid record ID' : Object.values(error.errors)[0].message,
+    });
   if (error.name === 'MulterError')
     return res
       .status(400)
@@ -95,11 +98,9 @@ app.use((error, req, res, next) => {
       .json({ success: false, message: 'Record changed. Reload and try again' });
   const status = error.status || error.statusCode || 500;
   if (status >= 500) console.error(error.message);
-  res
-    .status(status)
-    .json({
-      success: false,
-      message: status >= 500 ? 'Service temporarily unavailable' : error.message,
-    });
+  res.status(status).json({
+    success: false,
+    message: status >= 500 ? 'Service temporarily unavailable' : error.message,
+  });
 });
 module.exports = app;

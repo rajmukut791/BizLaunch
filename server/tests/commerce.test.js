@@ -4,6 +4,7 @@ const { randomUUID } = require('node:crypto');
 const mongoose = require('mongoose');
 require('../config/env')();
 process.env.NODE_ENV = 'test';
+process.env.CLIENT_ORIGINS = 'http://localhost:5199';
 const app = require('../app');
 const User = require('../models/User');
 const models = require('../models/commerce');
@@ -851,4 +852,18 @@ test('expired verification tokens cannot grant access', async () => {
     403,
   );
   await expect('/auth/verify-email', 'POST', { token: 'bad' }, undefined, 400);
+});
+
+test('additional trusted frontend origins are allowed while unknown origins remain blocked', async () => {
+  const origin = 'http://localhost:5199';
+  const response = await fetch(base + '/auth/verify-email', {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: 'invalid' }),
+  });
+  assert.equal(response.status, 400);
+  assert.equal(response.headers.get('access-control-allow-origin'), origin);
+  await expect('/auth/verify-email', 'POST', { token: 'invalid' }, undefined, 403, {
+    Origin: 'https://untrusted.example',
+  });
 });
