@@ -159,3 +159,112 @@ textarea:focus {
     display: block;
   }
 }
+
+.verification-notice {
+  padding: 28px 24px;
+  text-align: center;
+  border-radius: 22px;
+  border: 1px solid #d9ece2;
+  background: linear-gradient(150deg, #f0faf5, #f7faff);
+}
+.verification-seal {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 20px;
+  color: #087f6b;
+  background: #dff3e8;
+  box-shadow: 0 0 0 8px #edf8f2;
+  animation: verified-pop 0.6s ease both;
+}
+.verification-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.8px;
+  color: #087f6b;
+}
+.verification-notice h3 {
+  font-size: 25px;
+  line-height: 1.25;
+  letter-spacing: -0.8px;
+  margin: 13px 0 12px;
+}
+.verification-description {
+  color: #557067;
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0 0 14px;
+}
+.verification-api-message {
+  color: #557067;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0 0 22px;
+}
+.verification-next {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  background: #ffffffb8;
+  border: 1px solid #e1ece5;
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 20px;
+}
+.verification-next .icon-tile {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+.verification-next strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 5px;
+}
+.verification-next div > span {
+  display: block;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #73897f;
+}
+.verification-notice .button {
+  display: flex;
+  width: 100%;
+  margin-top: 10px;
+  white-space: normal;
+}
+.verification-trust {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 20px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: #73897f;
+}
+.verification-trust svg {
+  flex-shrink: 0;
+}
+@keyframes verified-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (max-width: 600px) {
+  .verification-notice {
+    padding: 24px 16px;
+  }
+  .verification-notice h3 {
+    font-size: 23px;
+  }
+}

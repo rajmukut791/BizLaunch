@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const mongoose = require('mongoose');
+const { accountEmail } = require('./emailTemplate');
 const deliveries = new Map();
 const isTest = () =>
   process.env.NODE_ENV === 'test' && /^bizlaunch_(test|e2e)_/.test(mongoose.connection.name || '');
@@ -11,10 +12,9 @@ async function sendLink(user, purpose, token) {
     process.env.CLIENT_URL,
   );
   url.searchParams.set('token', token);
-  const subject =
-    purpose === 'verification' ? 'Verify your BizLaunch email' : 'Reset your BizLaunch password';
+  const message = accountEmail(user, purpose, url.href);
   if (isTest()) {
-    deliveries.set(user.email, { purpose, token, url: url.href });
+    deliveries.set(user.email, { purpose, token, url: url.href, ...message });
     return;
   }
   if (!available()) throw new Error('Email delivery is unavailable');
@@ -31,14 +31,7 @@ async function sendLink(user, purpose, token) {
   await transport.sendMail({
     from: process.env.MAIL_FROM,
     to: user.email,
-    subject,
-    text:
-      subject +
-      '\n\n' +
-      url.href +
-      '\n\nExpires in ' +
-      (purpose === 'verification' ? '24 hours' : '30 minutes') +
-      '. Ignore this email if you did not request it.',
+    ...message,
   });
 }
 module.exports = {

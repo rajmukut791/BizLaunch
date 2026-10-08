@@ -72,7 +72,11 @@ exports.verify = async (req, res) => {
     },
   );
   if (!user) fail(400, 'This link is invalid or expired');
-  res.json({ success: true, message: 'Your email is verified. You can now sign in.' });
+  res.json({
+    success: true,
+    role: user.role,
+    message: 'Your email is verified. You can now sign in.',
+  });
 };
 exports.forgot = async (req, res) => {
   const address = email(req.body?.email);
