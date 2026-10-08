@@ -59,6 +59,7 @@ before(async () => {
     email: 'admin@test.example',
     password: 'TestSecret123!',
     role: 'admin',
+    emailVerified: true,
   });
   server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
@@ -101,15 +102,28 @@ test('register validates types, rejects administrator signup and weak passwords'
     400,
   );
 });
-test('register hashes passwords and creates private cookie sessions', async () => {
+test('registration requires email verification before creating private cookie sessions', async () => {
   for (const role of ['seller', 'seller2', 'customer', 'customer2']) {
-    const result = await request('/auth/register', 'POST', {
+    let result = await request('/auth/register', 'POST', {
       name: 'Test ' + role,
       email: role + '@test.example',
       password: 'TestSecret123!',
       role: role.startsWith('seller') ? 'seller' : 'customer',
     });
     assert.equal(result.status, 201);
+    assert.equal(result.cookie, null);
+    const address = role + '@test.example';
+    await expect(
+      '/auth/login',
+      'POST',
+      { email: address, password: 'TestSecret123!' },
+      undefined,
+      403,
+    );
+    const delivery = require('../services/mail').testDelivery(address);
+    await expect('/auth/verify-email', 'POST', { token: delivery.token }, undefined, 200);
+    await expect('/auth/verify-email', 'POST', { token: delivery.token }, undefined, 400);
+    result = await request('/auth/login', 'POST', { email: address, password: 'TestSecret123!' });
     assert.match(result.cookie, /HttpOnly/);
     assert.match(result.cookie, /SameSite=Strict/i);
     assert.equal(result.data.token, undefined);
@@ -761,4 +775,80 @@ test('suspended sellers disappear publicly and cannot receive new orders', async
   );
   await expect('/admin/users/' + users.seller.id, 'PATCH', { status: 'active' }, 'admin', 200);
   await expect('/products/' + product._id, 'GET', undefined, undefined, 200);
+});
+
+test('password reset is private, single-use and invalidates existing sessions', async () => {
+  const address = 'reset@test.example';
+  await User.create({
+    name: 'Reset User',
+    email: address,
+    password: 'OldSecret123!',
+    emailVerified: true,
+  });
+  const login = await request('/auth/login', 'POST', { email: address, password: 'OldSecret123!' });
+  const cookie = login.cookie.split(';')[0];
+  const known = await expect('/auth/forgot-password', 'POST', { email: address }, undefined, 200);
+  const unknown = await expect(
+    '/auth/forgot-password',
+    'POST',
+    { email: 'unknown@test.example' },
+    undefined,
+    200,
+  );
+  assert.deepEqual(known, unknown);
+  const token = require('../services/mail').testDelivery(address).token;
+  await expect(
+    '/auth/reset-password',
+    'POST',
+    { token, password: 'NewSecret123!' },
+    undefined,
+    200,
+  );
+  await expect(
+    '/auth/reset-password',
+    'POST',
+    { token, password: 'OtherSecret123!' },
+    undefined,
+    400,
+  );
+  await expect('/auth/me', 'GET', undefined, undefined, 401, { Cookie: cookie });
+  await expect(
+    '/auth/login',
+    'POST',
+    { email: address, password: 'OldSecret123!' },
+    undefined,
+    401,
+  );
+  await expect(
+    '/auth/login',
+    'POST',
+    { email: address, password: 'NewSecret123!' },
+    undefined,
+    200,
+  );
+});
+
+test('expired verification tokens cannot grant access', async () => {
+  const address = 'expired@test.example';
+  await expect(
+    '/auth/register',
+    'POST',
+    { name: 'Expired User', email: address, password: 'SecretPassword123!' },
+    undefined,
+    201,
+  );
+  const token = require('../services/mail').testDelivery(address).token;
+  await User.updateOne(
+    { email: address },
+    { $set: { verificationExpiresAt: new Date(Date.now() - 1000) } },
+  );
+  await expect('/auth/verify-email', 'POST', { token }, undefined, 400);
+  await expect(
+    '/auth/login',
+    'POST',
+    { email: address, password: 'SecretPassword123!' },
+    undefined,
+    403,
+  );
+  await expect('/auth/verify-email', 'POST', { token: 'bad' }, undefined, 400);
 });

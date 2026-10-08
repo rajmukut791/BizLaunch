@@ -39,6 +39,12 @@ const userSchema = new mongoose.Schema(
       default: 'customer',
     },
 
+    verificationTokenHash: { type: String, select: false, index: true, unique: true, sparse: true },
+    verificationExpiresAt: { type: Date, select: false },
+    verificationSentAt: { type: Date, select: false },
+    resetTokenHash: { type: String, select: false, index: true, unique: true, sparse: true },
+    resetExpiresAt: { type: Date, select: false },
+    resetSentAt: { type: Date, select: false },
     tokenVersion: { type: Number, default: 0 },
     avatar: {
       type: String,

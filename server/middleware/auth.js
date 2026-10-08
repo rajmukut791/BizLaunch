@@ -13,6 +13,7 @@ async function protect(req, res, next) {
   const user = await User.findById(payload.userId);
   if (!user || user.tokenVersion !== payload.version) fail(401, 'Please sign in again');
   if (user.status !== 'active') fail(403, 'Your account is suspended');
+  if (!user.emailVerified) fail(403, 'Verify your email before signing in');
   req.user = user;
   next();
 }

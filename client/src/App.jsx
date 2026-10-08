@@ -5,6 +5,8 @@ import { useApp } from './context/state';
 import { Layout, Workspace } from './components/Layout';
 import { Empty } from './components/UI';
 import Auth from './pages/Auth';
+import EmailAuth from './pages/EmailAuth';
+import ExperienceMotion from './components/ExperienceMotion';
 import Marketplace, { Storefront } from './pages/Marketplace';
 import Product from './pages/Product';
 import { Cart, Checkout } from './pages/Cart';
@@ -81,6 +83,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <ScrollReset />
+      <ExperienceMotion />
       <AppProvider>
         <Suspense fallback={<div className="loading">Loading workspace…</div>}>
           <Routes>
@@ -89,6 +92,9 @@ export default function App() {
               <Route path="marketplace" element={<Marketplace />} />
               <Route path="login" element={<Auth />} />
               <Route path="register" element={<Auth register />} />
+              <Route path="verify-email" element={<EmailAuth />} />
+              <Route path="forgot-password" element={<EmailAuth mode="forgot" />} />
+              <Route path="reset-password" element={<EmailAuth mode="reset" />} />
               <Route path="products/:id" element={<Product />} />
               <Route path="stores/:slug" element={<Storefront />} />
               <Route path="cart" element={<Cart />} />

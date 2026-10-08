@@ -87,3 +87,12 @@ Customer cancellation is allowed only from `placed`. Seller/admin cancellation i
 ## Health score
 
 Five components contribute 20 points each: approved verification; fraction of active products above the low-stock threshold (5 units); delivered share of all store orders; weighted average product rating; positive net operating profit. An empty component earns zero. The score is an operational indicator, not a financial forecast.
+
+## Email authentication
+
+POST /api/auth/register creates an unverified account and sends a link; no session cookie.
+POST /api/auth/resend-verification accepts email.
+POST /api/auth/verify-email accepts token; a successful verification allows subsequent login.
+POST /api/auth/forgot-password accepts email and returns a generic response.
+POST /api/auth/reset-password accepts token and password; invalidates existing sessions.
+All login and protected endpoints require emailVerified=true.

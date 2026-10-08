@@ -1,3 +1,5 @@
+Email verification is now required for every role. See [Gmail setup](docs/EMAIL_SETUP.md). Normal demo addresses cannot sign in; isolated tests use verified fixtures.
+
 # BizLaunch
 
 A business management platform and public marketplace for independent sellers, built with **React, Vite, Express, MongoDB and JWT authentication**.
@@ -35,7 +37,7 @@ API: http://localhost:5000
 
 Vite proxies `/api`, `/uploads` and `/demo` to the API. Set `BIZLAUNCH_API_URL` when using a different API address. Set `CLIENT_URL` to the exact frontend origin.
 
-## Demo accounts
+## Isolated test accounts
 
 | Role     | Email                   | Default password |
 | -------- | ----------------------- | ---------------- |
@@ -43,13 +45,15 @@ Vite proxies `/api`, `/uploads` and `/demo` to the API. Set `BIZLAUNCH_API_URL` 
 | Seller   | seller@bizlaunch.demo   | BizLaunch123!    |
 | Customer | customer@bizlaunch.demo | BizLaunch123!    |
 
+These addresses are login fixtures only in isolated automated test databases. Normal demo seeding creates unverified users that cannot sign in. Configure Gmail SMTP and register real addresses for interactive use.
+
 The seeder is disabled in production. Set `DEMO_PASSWORD` before the first seed to use your own password. Re-running the seeder adds missing demo records without clearing your database or resetting existing account passwords. Existing demo products and orders are preserved.
 
 The demo store is **The Everyday Studio** at `/stores/everyday-studio`. Coupon **LAUNCH10** discounts eligible store items by 10%, with a minimum purchase of BDT 300. Its initial expiry is 180 days after first seeding.
 
 ## Feature walkthrough
 
-1. **Register** as customer or seller. Public registration cannot create admins.
+1. **Register** as customer or seller, then verify the link sent to your mailbox before signing in. Public registration cannot create admins.
 2. **Seller onboarding:** create one business per seller and choose a unique store URL.
 3. **Admin verification:** review and approve the business before its products appear publicly.
 4. **Catalog:** admins maintain shared categories; sellers create, edit, archive and restore products.
@@ -86,7 +90,7 @@ cd ..
 
 API tests create a unique `bizlaunch_test_*` database and remove only that database afterward. Browser tests use a unique `bizlaunch_e2e_*` database and dedicated ports **5001 / 5174**, so they do not edit the normal demo database. Screenshots are written to `artifacts/`.
 
-The API suite covers validation, cookie sessions, ownership, role restrictions, verified store visibility, coupon calculation, stale quotes, duplicate checkout, concurrent stock reservations, multi-store and multi-variant orders, cancellation, review permissions, notifications, suspension and financial calculations. Browser tests exercise real customer, seller and administrator flows and mobile overflow.
+The API suite covers email verification, expired/single-use links, password reset, session invalidation, validation, cookie sessions, ownership, role restrictions, verified store visibility, coupon calculation, stale quotes, duplicate checkout, concurrent stock reservations, multi-store and multi-variant orders, cancellation, review permissions, notifications, suspension and financial calculations. Browser tests exercise real customer, seller and administrator flows and mobile overflow.
 
 To verify transactions locally, install MongoDB Server, make `mongod` available on PATH (or set `MONGOD_BINARY`), and run:
 
@@ -123,7 +127,7 @@ See [API documentation](docs/API.md) and [the 39-step roadmap](ROADMAP.md).
 - Serve the built frontend and API from the same site, reverse-proxying `/api`, `/uploads` and `/demo`. Configure SPA fallback to `index.html` for frontend routes. `npm start` starts the API; it does not serve the frontend build.
 - **A MongoDB replica set or Atlas is required for production checkout/cancellation.** These operations use database transactions. Standalone MongoDB is supported for local development with atomic stock writes and request-failure compensation. Its fallback does not guarantee recovery from process termination or database failure between writes; production rejects this fallback.
 - Persist and back up `server/uploads` when deploying. Uploaded assets are public product images. Removing an image detaches it from the product; old files are retained to preserve historical order images.
-- The implemented payment method is **cash on delivery**, with free delivery. Tracking is a seller-managed timeline/reference. Notifications are an in-app inbox. Online payment gateways, live courier APIs, refunds/returns, email/SMS and push delivery require separate integrations.
+- The implemented payment method is **cash on delivery**, with free delivery. Tracking is a seller-managed timeline/reference. Notifications are an in-app inbox. Online payment gateways, live courier APIs, refunds/returns, order emails, SMS and push delivery require separate integrations. Verification and password-reset email are implemented with Gmail SMTP.
 - Reports use the currently recorded unit cost at order placement; tax, marketplace fees and supplier accounting are outside this project's financial model.
 - Admin/seller management lists are capped at 200 recent records; notification/review lists are capped at 100/50. Public product listings are paginated.
 - Keep secrets out of Git. The local `.env`, upload data, database artifacts and dependencies are ignored. Create production admins through a controlled provisioning process, not demo seeding.

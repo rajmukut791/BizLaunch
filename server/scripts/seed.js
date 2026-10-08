@@ -25,7 +25,15 @@ async function seed() {
         throw new Error('Demo email is already used by a different account type');
       return existing;
     }
-    return User.create({ name, email, role, password, phone: '01700000000' });
+    return User.create({
+      name,
+      email,
+      role,
+      password,
+      phone: '01700000000',
+      emailVerified:
+        process.env.NODE_ENV === 'test' && /^bizlaunch_e2e_/.test(mongoose.connection.name),
+    });
   }
   const admin = await account('Platform Admin', 'admin@bizlaunch.demo', 'admin');
   const seller = await account('Ayesha Rahman', 'seller@bizlaunch.demo', 'seller');

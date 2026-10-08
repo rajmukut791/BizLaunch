@@ -70,3 +70,10 @@ Browser workflows cover discovery/search/storefront, mobile layouts, registratio
 - Demo seeder: non-destructive and disabled in production.
 
 See [README](README.md) for setup, accounts and deployment requirements, and [API reference](docs/API.md) for endpoint contracts.
+
+## Additional requested work — 2026-10-09
+
+- Requested Admin / Seller / Customer accounts provisioned; verification pending.
+- Gmail SMTP, required email verification, resend and forgot/reset password implemented.
+- Animated authentication, marketplace spotlight, scroll entrances and card interactions added with reduced-motion support.
+- Real email delivery awaits Gmail App Password configuration; deployment and GitHub publication still need external configuration.

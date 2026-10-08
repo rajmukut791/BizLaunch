@@ -1,0 +1,161 @@
+/* Motion remains optional for every user. */
+@keyframes aurora-drift {
+  0%,
+  100% {
+    transform: translate(-8%, -3%) rotate(-5deg);
+  }
+  50% {
+    transform: translate(8%, 5%) rotate(7deg);
+  }
+}
+@keyframes quiet-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+@keyframes entrance {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.auth-story {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 28px;
+  padding: clamp(24px, 4vw, 52px);
+  background: linear-gradient(135deg, #eefbf7, #e3f2ff);
+}
+.auth-story::before {
+  content: '';
+  position: absolute;
+  inset: -35%;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at 20% 30%, #9cf1d488, transparent 48%),
+    radial-gradient(ellipse at 75% 70%, #afc8ff88, transparent 50%);
+  animation: aurora-drift 16s ease-in-out infinite;
+}
+.auth-story .story-card {
+  animation: quiet-float 6s ease-in-out infinite;
+  background: #ffffffbd;
+  backdrop-filter: blur(16px);
+  border: 1px solid #ffffff;
+  box-shadow: 0 20px 50px #15574715;
+}
+.auth-form {
+  animation: entrance 0.55s ease both;
+  border: 1px solid #d9e9e4;
+  box-shadow: 0 24px 65px #143c3010;
+}
+.product-card {
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+}
+.product-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 18px 38px #17463416;
+  border-color: #5dc5a6;
+}
+.button {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+.button:hover {
+  transform: translateY(-2px);
+}
+.button:active {
+  transform: translateY(0) scale(0.98);
+}
+.button.primary:hover {
+  box-shadow: 0 7px 22px #13836b30;
+}
+.panel {
+  transition: box-shadow 0.25s ease;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  box-shadow: 0 0 0 4px #13836b15;
+  transition: box-shadow 0.2s ease;
+}
+.email-auth .auth-story h1 {
+  font-size: clamp(36px, 5vw, 64px);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.hero {
+  position: relative;
+  isolation: isolate;
+  --pointer-x: 50%;
+  --pointer-y: 50%;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 32px;
+  background: radial-gradient(
+    400px circle at var(--pointer-x) var(--pointer-y),
+    #abeddb45,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+.hero .live-dot {
+  box-shadow: 0 0 0 6px #1da58215;
+  animation: quiet-float 4s ease-in-out infinite;
+}
+.hero-copy h1 {
+  animation: entrance 0.7s ease both;
+}
+.hero-copy > p {
+  animation: entrance 0.7s 0.1s ease both;
+}
+.hero-actions {
+  animation: entrance 0.7s 0.2s ease both;
+}
+.reveal.in-view {
+  animation: entrance 0.6s var(--reveal-delay, 0ms) ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal.in-view {
+    animation: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .auth-story h1 {
+    font-size: clamp(34px, 10vw, 46px);
+    line-height: 1.15;
+    letter-spacing: -1.5px;
+  }
+  .auth-story h1 br {
+    display: initial;
+  }
+  .auth-story h1 span {
+    display: block;
+  }
+}

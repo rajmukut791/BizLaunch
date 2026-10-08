@@ -58,6 +58,17 @@ test('customer registration, coupon confirmation, checkout, tracking and cancell
   await page.getByLabel('Email address').fill('browser-customer@test.example');
   await page.getByLabel('Password', { exact: true }).fill('BrowserSecret123!');
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
+  await expect(page).toHaveURL(/\/verify-email/);
+  const delivery = await (
+    await page.request.get('/api/auth/test-delivery?email=browser-customer@test.example')
+  ).json();
+  await page.goto('/verify-email?token=' + delivery.token);
+  await page.getByRole('button', { name: 'Verify my email' }).click();
+  await expect(page.getByText('Your email is verified. You can now sign in.')).toBeVisible();
+  await page.goto('/login');
+  await page.getByLabel('Email address').fill('browser-customer@test.example');
+  await page.getByLabel('Password', { exact: true }).fill('BrowserSecret123!');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
   await page.goto('/marketplace');
   await page.getByRole('link', { name: /Everyday Canvas Tote/ }).click();
@@ -101,16 +112,14 @@ test('seller can create products, upload images and manage the workspace', async
   const row = page.getByRole('row').filter({ hasText: 'Browser Test Product' });
   await expect(row).toBeVisible();
   await row.getByRole('button', { name: 'Images (0)', exact: true }).click();
-  await row
-    .getByLabel('PNG, JPEG or WebP · up to 5 MB')
-    .setInputFiles({
-      name: 'test.png',
-      mimeType: 'image/png',
-      buffer: Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jV9sAAAAASUVORK5CYII=',
-        'base64',
-      ),
-    });
+  await row.getByLabel('PNG, JPEG or WebP · up to 5 MB').setInputFiles({
+    name: 'test.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jV9sAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
   await row.getByRole('button', { name: 'Upload image', exact: true }).click();
   await expect(row.getByRole('button', { name: 'Images (1)', exact: true })).toBeVisible();
   for (const [path, heading] of [
@@ -173,4 +182,26 @@ test('admin dashboard, category management, verification, users and reports load
     await expect(page.getByText('Unable to load', { exact: true })).toHaveCount(0);
   }
   expect(errors).toEqual([]);
+});
+
+test('forgot password emails a link and reset restores access', async ({ page }) => {
+  await page.goto('/forgot-password');
+  await page.getByLabel('Email address').fill('browser-customer@test.example');
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(
+    page.getByText('If an eligible account exists, a password reset link has been sent.'),
+  ).toBeVisible();
+  const delivery = await (
+    await page.request.get('/api/auth/test-delivery?email=browser-customer@test.example')
+  ).json();
+  await page.goto('/reset-password?token=' + delivery.token);
+  await page.getByLabel('New password', { exact: true }).fill('UpdatedBrowser123!');
+  await page.getByLabel('Confirm password').fill('UpdatedBrowser123!');
+  await page.getByRole('button', { name: 'Update password' }).click();
+  await expect(page.getByText('Password updated. Sign in with your new password.')).toBeVisible();
+  await page.goto('/login');
+  await page.getByLabel('Email address').fill('browser-customer@test.example');
+  await page.getByLabel('Password', { exact: true }).fill('UpdatedBrowser123!');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
 });

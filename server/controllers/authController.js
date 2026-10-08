@@ -16,6 +16,7 @@ const publicUser = (user) => ({
   role: user.role,
   avatar: user.avatar,
   status: user.status,
+  emailVerified: user.emailVerified,
 });
 function session(res, user) {
   const token = jwt.sign({ userId: user.id, version: user.tokenVersion }, process.env.JWT_SECRET, {
@@ -34,9 +35,11 @@ exports.register = async (req, res) => {
   const phone = text(data.phone || '', 'Phone', 0, 30);
   if (await User.exists({ email: normalizedEmail }))
     fail(409, 'An account already exists with this email');
+  if (!require('../services/mail').available())
+    fail(503, 'Email delivery is temporarily unavailable. Please try again later.');
   const user = await User.create({ name, email: normalizedEmail, password: secret, phone, role });
-  session(res, user);
-  res.status(201).json({ success: true, user: publicUser(user) });
+  await require('./emailAuthController').issue(user, 'verification');
+  res.status(201).json({ success: true, verificationRequired: true, email: user.email });
 };
 exports.login = async (req, res) => {
   const normalizedEmail = email(req.body?.email);
@@ -44,6 +47,7 @@ exports.login = async (req, res) => {
   const user = await User.findOne({ email: normalizedEmail }).select('+password');
   if (!user || !(await user.comparePassword(secret))) fail(401, 'Email or password is incorrect');
   if (user.status !== 'active') fail(403, 'Your account is suspended');
+  if (!user.emailVerified) fail(403, 'Verify your email before signing in');
   user.lastLogin = new Date();
   await user.save();
   session(res, user);

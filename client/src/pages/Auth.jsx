@@ -80,6 +80,12 @@ export default function Auth({ register = false }) {
               method: 'POST',
               body: data,
             });
+            if (result.verificationRequired) {
+              navigate('/verify-email?email=' + encodeURIComponent(result.email), {
+                replace: true,
+              });
+              return;
+            }
             setUser(result.user);
             navigate(destination(result.user), { replace: true });
           }}
@@ -130,6 +136,12 @@ export default function Auth({ register = false }) {
             </>
           )}
         </Form>
+        {!register && (
+          <p className="auth-switch">
+            <Link to="/forgot-password">Forgot password?</Link> ·{' '}
+            <Link to="/verify-email">Verify email / resend link</Link>
+          </p>
+        )}
         <p className="auth-switch">
           {register ? 'Already have an account?' : 'New to BizLaunch?'}{' '}
           <Link
