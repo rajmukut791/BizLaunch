@@ -29,7 +29,8 @@ npm run dev:server
 npm run dev:client
 ```
 
-Frontend: http://localhost:5173  
+Frontend: http://localhost:5173
+
 API: http://localhost:5000
 
 Vite proxies `/api`, `/uploads` and `/demo` to the API. Set `BIZLAUNCH_API_URL` when using a different API address. Set `CLIENT_URL` to the exact frontend origin.
