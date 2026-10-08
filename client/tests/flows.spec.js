@@ -283,3 +283,69 @@ test('admin maintenance studio previews, pauses and reopens the marketplace', as
     await visitorContext.close();
   }
 });
+
+test('orders filter, next page and customer-to-admin refund workflow', async ({
+  page,
+  browser,
+}) => {
+  await login(page, 'admin');
+  await page.goto('/admin/orders');
+  await page.getByLabel('Orders per page').selectOption('5');
+  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page.locator('tbody tr')).toHaveCount(5);
+  const first = await page.locator('tbody tr').first().innerText();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page.getByText('Page 2 of 2')).toBeVisible();
+  expect(await page.locator('tbody tr').first().innerText()).not.toEqual(first);
+  await page.getByRole('button', { name: 'Reset filters' }).click();
+  await page.getByLabel('Customer, email or order').fill('BL-DEMO-006');
+  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page.locator('tbody tr')).toHaveCount(1);
+  await page
+    .locator('tbody')
+    .getByRole('link', { name: /Manage/ })
+    .click();
+  const orderPath = new URL(page.url()).pathname;
+  const context = await browser.newContext();
+  const customer = await context.newPage();
+  try {
+    await login(customer, 'customer');
+    await customer.goto(orderPath);
+    await customer.getByText('Request a refund', { exact: true }).click();
+    await customer.getByLabel('Refund amount (BDT)').fill('100');
+    await customer.getByLabel('Refund reason').fill('The product finish was damaged on arrival.');
+    await customer.getByRole('button', { name: 'Submit refund request' }).click();
+    await expect(customer.locator('.refund-case .badge')).toHaveText('requested');
+    await page.goto('/admin/orders');
+    await page.getByRole('button', { name: 'Review refund requests' }).click();
+    await expect(page.locator('tbody tr')).toHaveCount(1);
+    await page
+      .locator('tbody')
+      .getByRole('link', { name: /Manage/ })
+      .click();
+    await page.getByLabel('Review note').fill('Approved after checking the reported damage.');
+    await page.getByRole('button', { name: 'Save refund decision' }).click();
+    await expect(page.locator('.refund-case .badge')).toHaveText('approved');
+    await page.getByLabel('Payout reference / receipt').fill('DEMO-CASH-REFUND-001');
+    await page.getByLabel('Review note').fill('Customer received the refund in cash.');
+    await page.getByRole('checkbox').check();
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Record refund payout' }).click();
+    await expect(page.locator('.refund-case .badge')).toHaveText('completed');
+    await expect(page.getByText('Refunds paid')).toBeVisible();
+    await customer.reload();
+    await expect(customer.locator('.refund-case .badge')).toHaveText('completed');
+    await page.screenshot({ path: screenshots + '/order-refund-admin.png', fullPage: true });
+    await page.goto('/admin/orders');
+    await page.screenshot({ path: screenshots + '/orders-admin.png', fullPage: true });
+    await customer.setViewportSize({ width: 390, height: 844 });
+    await customer.goto('/orders');
+    await expect(customer.locator('tbody tr')).toHaveCount(6);
+    expect(await customer.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
+    await customer.screenshot({ path: screenshots + '/orders-mobile.png', fullPage: true });
+  } finally {
+    await context.close();
+  }
+});

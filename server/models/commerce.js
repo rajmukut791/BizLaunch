@@ -85,6 +85,28 @@ const fulfillmentSchema = new Schema(
   },
   { _id: false },
 );
+const refundSchema = new Schema({
+  business: ref('Business'),
+  amount,
+  reason: { type: String, required: true, maxlength: 1000 },
+  status: {
+    type: String,
+    enum: ['requested', 'approved', 'rejected', 'completed'],
+    default: 'requested',
+  },
+  version: { type: Number, default: 0, min: 0 },
+  requestedAt: Date,
+  updatedAt: Date,
+  completedAt: Date,
+  payoutMethod: { type: String, enum: ['cash', 'bank_transfer', 'mobile_banking'] },
+  payoutReference: { type: String, maxlength: 120 },
+  events: [
+    new Schema(
+      { status: String, note: { type: String, maxlength: 1000 }, actor: ref('User'), at: Date },
+      { _id: false },
+    ),
+  ],
+});
 const orderSchema = new Schema(
   {
     customer: ref('User'),
@@ -99,10 +121,14 @@ const orderSchema = new Schema(
     coupon: { type: Schema.Types.ObjectId, ref: 'Coupon' },
     couponCode: String,
     fulfillments: [fulfillmentSchema],
+    refunds: [refundSchema],
   },
   options,
 );
 orderSchema.index({ customer: 1, checkoutKey: 1 }, { unique: true });
+orderSchema.index({ createdAt: -1, _id: -1 });
+orderSchema.index({ customer: 1, createdAt: -1 });
+orderSchema.index({ 'fulfillments.business': 1, createdAt: -1 });
 const couponSchema = new Schema(
   {
     business: ref('Business'),

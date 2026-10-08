@@ -144,9 +144,9 @@ export function AdminDashboard() {
                 </span>
                 <span className="admin-soft-label">DELIVERED MARKETPLACE SALES</span>
                 <strong>{currency(resource.data.overview.revenue)}</strong>
-                <p>Delivered sales after discounts. A grounded view of your marketplace’s value.</p>
+                <p>Delivered sales after discounts and completed refunds.</p>
                 <div>
-                  <ShieldCheck size={15} /> Revenue is recognized on delivery.
+                  <ShieldCheck size={15} /> Paid refunds: {currency(resource.data.overview.refunds)}
                 </div>
                 <Link to="/admin/orders">
                   Explore orders <ArrowUpRight size={15} />

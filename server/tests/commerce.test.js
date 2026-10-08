@@ -935,3 +935,160 @@ test('maintenance is admin-only, blocks commerce, preserves authentication and a
     await Settings.updateOne({ _id: 'platform' }, { $set: { enabled: false, endsAt: null } });
   }
 });
+
+test('orders paginate and search safely with inclusive Bangladesh date boundaries', async () => {
+  const template = await Order.findById(order._id).lean();
+  const fixtures = [];
+  for (let i = 0; i < 7; i++)
+    fixtures.push({
+      ...template,
+      _id: new mongoose.Types.ObjectId(),
+      number: 'FILTER-' + i,
+      checkoutKey: 'filter-' + i,
+      createdAt: new Date('2026-01-01T18:00:00Z'),
+      updatedAt: new Date(),
+      refunds: [],
+    });
+  fixtures.push({
+    ...template,
+    _id: new mongoose.Types.ObjectId(),
+    number: 'FILTER-OUTSIDE',
+    checkoutKey: 'filter-outside',
+    createdAt: new Date('2026-01-02T18:00:00Z'),
+    refunds: [],
+  });
+  await Order.collection.insertMany(fixtures);
+  const page1 = await expect(
+    '/orders?q=FILTER-&from=2026-01-02&to=2026-01-02&limit=5',
+    'GET',
+    undefined,
+    'admin',
+    200,
+  );
+  assert.equal(page1.total, 7);
+  assert.equal(page1.orders.length, 5);
+  assert.equal(page1.pages, 2);
+  const page2 = await expect(
+    '/orders?q=FILTER-&from=2026-01-02&to=2026-01-02&limit=5&page=2',
+    'GET',
+    undefined,
+    'admin',
+    200,
+  );
+  assert.equal(page2.orders.length, 2);
+  assert.ok(page2.orders.every((row) => !page1.orders.some((other) => other._id === row._id)));
+  assert.equal((await expect('/orders?q=%5B', 'GET', undefined, 'admin', 200)).total, 0);
+  assert.ok(
+    (await expect('/orders?q=customer%40test.example', 'GET', undefined, 'admin', 200)).total > 0,
+  );
+  for (const query of [
+    'from=2026-02-30',
+    'from=2026-02-01&to=2026-01-01',
+    'limit=0',
+    'page=abc',
+    'status=bogus',
+    'refund=bogus',
+    'sort=bogus',
+  ])
+    await expect('/orders?' + query, 'GET', undefined, 'admin', 400);
+  await Order.deleteMany({ _id: { $in: fixtures.map((f) => f._id) } });
+});
+test('refund review enforces ownership, eligibility, duplicate protection and payout accounting', async () => {
+  for (const role of ['customer', 'customer2', 'seller', 'seller2']) {
+    const login = await request('/auth/login', 'POST', {
+      email: role + '@test.example',
+      password: 'TestSecret123!',
+    });
+    assert.equal(login.status, 200);
+    cookies[role] = login.cookie.split(';')[0];
+  }
+  const target = await Order.findById(order._id);
+  const body = {
+    business: String(business._id),
+    amount: 10,
+    reason: 'Product arrived with a damaged finish.',
+  };
+  const path = '/orders/' + target.id + '/refunds';
+  await expect(path, 'POST', body, 'seller', 403);
+  await expect(path, 'POST', body, 'customer2', 403);
+  await expect(path, 'POST', { ...body, amount: 1000000 }, 'customer', 400);
+  const pending = await Order.findOne({
+    'fulfillments.status': { $ne: 'delivered' },
+    customer: target.customer,
+  });
+  if (pending) await expect('/orders/' + pending.id + '/refunds', 'POST', body, 'customer', 400);
+  const before = (await expect('/seller/analytics', 'GET', undefined, 'seller', 200)).analytics;
+  const stockBefore = (await Product.findById(product._id)).stock;
+  const submissions = await Promise.all([
+    request(path, 'POST', body, 'customer'),
+    request(path, 'POST', body, 'customer'),
+  ]);
+  assert.deepEqual(submissions.map((r) => r.status).sort(), [201, 409]);
+  const detail = (await expect('/orders/' + target.id, 'GET', undefined, 'admin', 200)).order;
+  const refund = detail.refunds[0],
+    review = path + '/' + refund._id;
+  await expect(
+    review,
+    'PATCH',
+    { status: 'approved', note: 'Eligible damaged product refund.', version: 0 },
+    'seller',
+    403,
+  );
+  await expect(
+    review,
+    'PATCH',
+    { status: 'completed', note: 'Paid already', version: 0 },
+    'admin',
+    409,
+  );
+  await expect(
+    review,
+    'PATCH',
+    { status: 'approved', note: 'Eligible damaged product refund.', version: 0 },
+    'admin',
+    200,
+  );
+  await expect(
+    review,
+    'PATCH',
+    { status: 'rejected', note: 'Stale decision', version: 0 },
+    'admin',
+    409,
+  );
+  assert.equal(
+    (await expect('/seller/analytics', 'GET', undefined, 'seller', 200)).analytics.revenue,
+    before.revenue,
+  );
+  const payout = {
+    status: 'completed',
+    note: 'Cash returned to the customer.',
+    version: 1,
+    payoutMethod: 'cash',
+    payoutReference: 'RECEIPT-TEST-001',
+  };
+  await expect(review, 'PATCH', payout, 'admin', 400);
+  const payments = await Promise.all([
+    request(review, 'PATCH', { ...payout, paymentConfirmed: true }, 'admin'),
+    request(review, 'PATCH', { ...payout, paymentConfirmed: true }, 'admin'),
+  ]);
+  assert.deepEqual(payments.map((r) => r.status).sort(), [200, 409]);
+  const after = (await expect('/seller/analytics', 'GET', undefined, 'seller', 200)).analytics;
+  assert.equal(after.revenue, before.revenue - 10);
+  assert.equal(after.profit, before.profit - 10);
+  assert.equal(after.cost, before.cost);
+  assert.equal((await Product.findById(product._id)).stock, stockBefore);
+  const completed = (await expect('/orders/' + target.id, 'GET', undefined, 'customer', 200)).order;
+  assert.equal(completed.refundedTotal, 10);
+  assert.equal(completed.refunds[0].events.length, 3);
+  assert.equal(
+    (await expect('/orders?refund=completed', 'GET', undefined, 'seller2', 200)).orders.some(
+      (row) => row.refunds.some((r) => r._id === refund._id),
+    ),
+    false,
+  );
+  assert.ok(
+    (await expect('/orders?refund=completed', 'GET', undefined, 'admin', 200)).orders.some(
+      (row) => row._id === target.id,
+    ),
+  );
+});

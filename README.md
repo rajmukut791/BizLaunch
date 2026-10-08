@@ -64,7 +64,7 @@ The demo store is **The Everyday Studio** at `/stores/everyday-studio`. Coupon *
 9. **Orders:** each store has its own fulfillment timeline, even for multi-store orders. Sellers progress from placed → confirmed → processing → shipped → delivered. Add a tracking reference when shipping.
 10. **Cancellation:** customers can cancel unconfirmed store items. Sellers/admins can cancel before shipping; cancelled inventory returns to stock once.
 11. **Reviews:** customers can leave or update one review per product after delivery.
-12. **Finance:** record operating expenses and product unit costs. Revenue and product costs are recognized on delivery; net profit subtracts both product cost and operating expenses.
+12. **Finance:** record operating expenses and product unit costs. Revenue and product costs are recognized on delivery; completed refunds reduce revenue and profit in the payout month. Net profit also subtracts product costs and operating expenses.
 13. **Analytics:** monthly revenue/profit chart, low-stock list, customer ratings and a transparent business health score.
 14. **Coupons:** store-specific percentage discounts, expiry, minimum purchase, activation and atomic usage limits. Usage counts successful orders, including orders later cancelled.
 15. **Notifications & reports:** in-app order/business/report updates, mark-all-read, customer concerns, admin resolution, and downloadable financial reports.
@@ -127,7 +127,7 @@ See [API documentation](docs/API.md) and [the 39-step roadmap](ROADMAP.md).
 - Serve the built frontend and API from the same site, reverse-proxying `/api`, `/uploads` and `/demo`. Configure SPA fallback to `index.html` for frontend routes. `npm start` starts the API; it does not serve the frontend build.
 - **A MongoDB replica set or Atlas is required for production checkout/cancellation.** These operations use database transactions. Standalone MongoDB is supported for local development with atomic stock writes and request-failure compensation. Its fallback does not guarantee recovery from process termination or database failure between writes; production rejects this fallback.
 - Persist and back up `server/uploads` when deploying. Uploaded assets are public product images. Removing an image detaches it from the product; old files are retained to preserve historical order images.
-- The implemented payment method is **cash on delivery**, with free delivery. Tracking is a seller-managed timeline/reference. Notifications are an in-app inbox. Online payment gateways, live courier APIs, refunds/returns, order emails, SMS and push delivery require separate integrations. Verification and password-reset email are implemented with Gmail SMTP.
+- The implemented payment method is **cash on delivery**, with free delivery. Tracking is a seller-managed timeline/reference. Notifications are an in-app inbox. Online payment gateways, live courier APIs, automated refunds/physical returns, order emails, SMS and push delivery require separate integrations. Verification and password-reset email are implemented with Gmail SMTP.
 - Reports use the currently recorded unit cost at order placement; tax, marketplace fees and supplier accounting are outside this project's financial model.
 - Admin/seller management lists are capped at 200 recent records; notification/review lists are capped at 100/50. Public product listings are paginated.
 - Keep secrets out of Git. The local `.env`, upload data, database artifacts and dependencies are ignored. Create production admins through a controlled provisioning process, not demo seeding.
@@ -139,3 +139,11 @@ The local repository and CI workflow are prepared. Publishing requires the desti
 ## Admin platform care
 
 Premium admin overview and Maintenance studio support custom visitor messages, preview, scheduled reopening and a 20-entry activity history. Maintenance defaults to Online. See [maintenance operations](docs/ADMIN_MAINTENANCE.md).
+
+### Order management and COD refunds
+
+The shared customer/seller/admin Orders view supports customer/name/email/phone/order search, inclusive Bangladesh date ranges, delivery/refund status, oldest/newest sorting, and server-side pagination (5–50 orders per page). Dashboard totals use all matching orders rather than only the current page.
+
+Refunds live in the existing order details. Customers or admins can open one partial/full refund case per delivered store fulfillment, capped at the discounted amount for that store. Admins approve or reject with a note, then record the actual external cash/bank/mobile payout with a receipt reference and explicit payment confirmation. Customers and sellers receive inbox notifications and see the case history. Version checks and atomic updates prevent duplicate cases or payout recording. Rejected and completed cases are final.
+
+This records a manual COD refund; it does not transfer money, integrate a bank, or restore inventory. Physical returns require a separate inspection/restocking process. Completed refunds reduce seller revenue/profit and admin marketplace sales once; incurred product costs remain.

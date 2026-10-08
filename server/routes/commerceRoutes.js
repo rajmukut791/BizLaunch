@@ -1,3 +1,5 @@
+const { listOrders } = require('../services/orderListing');
+const refunds = require('../controllers/refundController');
 const router = require('express').Router();
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
@@ -133,22 +135,18 @@ router.patch('/notifications/read', async (req, res) => {
   result(res, {});
 });
 router.get('/orders', async (req, res) => {
-  let filter;
-  if (req.user.role === 'admin') filter = {};
-  else if (req.user.role === 'seller')
-    filter = { 'fulfillments.business': (await ownedBusiness(req.user))._id };
-  else filter = { customer: req.user.id };
-  const orders = await Order.find(filter)
-    .populate('customer', 'name email')
-    .populate('fulfillments.business', 'name')
-    .sort({ createdAt: -1 })
-    .limit(200);
   const own = req.user.role === 'seller' ? await ownedBusiness(req.user) : null;
-  result(res, { orders: orders.map((order) => safeOrder(order, req.user, own)) });
+  const listing = await listOrders(Order, req.user, own, req.query);
+  result(res, {
+    ...listing,
+    orders: listing.orders.map((order) => safeOrder(order, req.user, own)),
+  });
 });
 function safeOrder(order, user, business) {
   const data = order.toObject ? order.toObject() : order;
+  data.refunds = data.refunds || [];
   if (user.role === 'seller') {
+    data.refunds = data.refunds.filter((refund) => same(refund.business, business._id));
     data.items = data.items.filter((item) => same(item.business, business._id));
     data.fulfillments = data.fulfillments.filter((f) =>
       same(f.business._id || f.business, business._id),
@@ -167,6 +165,9 @@ function safeOrder(order, user, business) {
         ),
       )
       .reduce((sum, item) => sum + item.price * item.quantity - item.discount, 0),
+  );
+  data.refundedTotal = money(
+    data.refunds.filter((r) => r.status === 'completed').reduce((sum, r) => sum + r.amount, 0),
   );
   delete data.checkoutKey;
   return data;
@@ -188,6 +189,8 @@ router.get('/orders/:id', async (req, res) => {
 router.post('/checkout/quote', roles('customer'), checkout.quoteOrder);
 router.post('/checkout', roles('customer'), checkout.placeOrder);
 router.patch('/orders/:id/status', checkout.changeStatus);
+router.post('/orders/:id/refunds', roles('customer', 'admin'), refunds.request);
+router.patch('/orders/:id/refunds/:refundId', roles('admin'), refunds.review);
 router.post('/products/:id/reviews', roles('customer'), async (req, res) => {
   const productId = id(req.params.id);
   const product = await Product.findById(productId);
@@ -546,6 +549,12 @@ router.get('/admin/overview', async (req, res) => {
       },
     },
   ]);
+  const refundTotals = await Order.aggregate([
+    { $unwind: '$refunds' },
+    { $match: { 'refunds.status': 'completed' } },
+    { $group: { _id: null, total: { $sum: '$refunds.amount' } } },
+  ]);
+  const refunded = money(refundTotals[0]?.total || 0);
   const timezone = 'Asia/Dhaka';
   const now = new Date(Date.now() + 6 * 3600000);
   const start = new Date(
@@ -578,7 +587,9 @@ router.get('/admin/overview', async (req, res) => {
       orders,
       pending,
       reports,
-      revenue: money(values[0]?.revenue || 0),
+      grossRevenue: money(values[0]?.revenue || 0),
+      refunds: refunded,
+      revenue: money((values[0]?.revenue || 0) - refunded),
     },
   });
 });

@@ -1,3 +1,4 @@
+import '../pages/AdminPremium.css';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,

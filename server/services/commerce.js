@@ -62,6 +62,18 @@ async function analytics(business) {
       }
     }
   }
+  const grossRevenue = money(revenue);
+  let refunds = 0;
+  for (const order of orders)
+    for (const refund of order.refunds || []) {
+      if (String(refund.business) !== business.id || refund.status !== 'completed') continue;
+      refunds += refund.amount;
+      revenue -= refund.amount;
+      const month = months.find(
+        (m) => m.key === new Date(refund.completedAt).toISOString().slice(0, 7),
+      );
+      if (month) month.revenue -= refund.amount;
+    }
   const totalExpenses = money(expenses.reduce((sum, expense) => sum + expense.amount, 0));
   expenses.forEach((expense) => {
     const month = months.find((m) => m.key === new Date(expense.date).toISOString().slice(0, 7));
@@ -108,6 +120,8 @@ async function analytics(business) {
     },
   ];
   return {
+    grossRevenue,
+    refunds: money(refunds),
     revenue: money(revenue),
     cost: money(cost),
     expenses: totalExpenses,

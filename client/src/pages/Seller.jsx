@@ -84,7 +84,7 @@ function Stats({ data }) {
   return (
     <div className="stats-grid">
       {[
-        [TrendingUp, 'Delivered revenue', currency(data.revenue)],
+        [TrendingUp, 'Net delivered revenue', currency(data.revenue)],
         [Wallet, 'Net profit', currency(data.profit)],
         [ShoppingBag, 'Total orders', data.orders],
         [Package, 'Active products', data.products],
@@ -145,7 +145,8 @@ export function SellerDashboard() {
                     </div>
                     <RevenueChart months={resource.data.analytics.months} />
                     <p className="muted small-text">
-                      Revenue and product costs are recognized when orders are delivered.
+                      Revenue and product costs are recognized on delivery. Paid refunds reduce
+                      revenue in the payout month.
                     </p>
                   </section>
                   <section className="panel">
@@ -822,8 +823,8 @@ export function Analytics() {
               <h2>Revenue & profit</h2>
               <RevenueChart months={resource.data.analytics.months} />
               <p className="muted">
-                Net profit = delivered revenue − delivered product costs − recorded expenses.
-                Cancelled orders contribute no revenue.
+                Net profit = delivered sales − paid refunds − delivered product costs − recorded
+                expenses. Cancelled orders contribute no revenue.
               </p>
             </section>
             <div className="dashboard-grid">
@@ -852,7 +853,9 @@ export function Analytics() {
               <section className="panel">
                 <h2>The numbers behind your profit</h2>
                 {[
-                  ['Delivered revenue', 'revenue'],
+                  ['Delivered sales after discounts', 'grossRevenue'],
+                  ['Refunds paid', 'refunds'],
+                  ['Net delivered revenue', 'revenue'],
                   ['Product costs', 'cost'],
                   ['Operating expenses', 'expenses'],
                   ['Net profit', 'profit'],
