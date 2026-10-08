@@ -1,17 +1,9 @@
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import {
-  ArrowUpRight,
-  ArrowRight,
-  Search,
-  Star,
-  ShieldCheck,
-  Truck,
-  Store,
-  Sparkles,
-} from 'lucide-react';
+import { ArrowUpRight, Search, Star, ShieldCheck, Store } from 'lucide-react';
 import { useResource } from '../lib/hooks';
 import { currency } from '../lib/api';
 import { State, Empty, PageTitle, ProductImage } from '../components/UI';
+import { HomeHero, HomePromise, HomeSellerStory } from '../components/HomeExperience';
 export function ProductCard({ product }) {
   return (
     <Link className="product-card" to={'/products/' + product._id}>
@@ -51,70 +43,14 @@ export default function Marketplace({ home = false, businessId, storeName }) {
     setParams(next);
   }
   return (
-    <main>
+    <main className={home ? 'homepage' : undefined}>
       {home && (
-        <section className="hero container">
-          <div className="hero-copy">
-            <span className="pill">
-              <span className="live-dot" /> BIG IDEAS. INDEPENDENT BRANDS.
-            </span>
-            <h1>
-              Discover good things.
-              <br />
-              Launch <span>great things.</span>
-            </h1>
-            <p>
-              A marketplace for thoughtful finds. A home for ambitious businesses. Find your next
-              favorite, or build it yourself.
-            </p>
-            <div className="hero-actions">
-              <Link className="button primary" to="/marketplace">
-                Explore marketplace <ArrowRight size={18} />
-              </Link>
-              <Link className="button secondary" to="/register">
-                Start your business <ArrowUpRight size={18} />
-              </Link>
-            </div>
-            <div className="hero-proof">
-              <span className="mini-avatars">
-                <i>A</i>
-                <i>R</i>
-                <i>S</i>
-              </span>
-              <span>
-                For the makers, dreamers & doers.
-                <br />
-                <strong>Your next chapter starts here.</strong>
-              </span>
-            </div>
-          </div>
-          <div className="hero-art">
-            <div className="art-orbit" />
-            <div className="art-label">
-              <Sparkles size={16} /> Small brands. Big possibilities.
-            </div>
-            <div className="hero-product">
-              <img src="/demo/bag.svg" alt="Illustrated everyday canvas tote" />
-              <span className="art-badge">
-                MADE FOR
-                <br />
-                EVERY DAY.
-              </span>
-            </div>
-            <div className="floating-card">
-              <span className="icon-tile">
-                <Store size={23} />
-              </span>
-              <div>
-                <strong>Your brand, your way</strong>
-                <span>Build something that is yours.</span>
-              </div>
-              <ArrowUpRight size={20} />
-            </div>
-          </div>
-        </section>
+        <>
+          <HomeHero total={products.data?.total} />
+          <HomePromise />
+        </>
       )}
-      <section className="container market-section">
+      <section className="container market-section" id={home ? 'discover' : undefined}>
         <PageTitle
           eyebrow={home ? 'THE MARKETPLACE' : 'CURATED BY INDEPENDENT BRANDS'}
           title={
@@ -263,44 +199,7 @@ export default function Marketplace({ home = false, businessId, storeName }) {
           )}
         </State>
       </section>
-      {home && (
-        <>
-          <section className="trust-strip container">
-            <div>
-              <ShieldCheck />
-              <span>
-                <strong>Verified businesses</strong>Independent brands you can discover
-              </span>
-            </div>
-            <div>
-              <Truck />
-              <span>
-                <strong>Cash on delivery</strong>Pay when your order arrives
-              </span>
-            </div>
-            <div>
-              <Store />
-              <span>
-                <strong>Built for local sellers</strong>Tools to turn your idea into a business
-              </span>
-            </div>
-          </section>
-          <section className="seller-cta container">
-            <div>
-              <p className="eyebrow">YOUR NEXT CHAPTER</p>
-              <h2>
-                That idea you keep thinking about?
-                <br />
-                Give it a place to grow.
-              </h2>
-              <p>Your storefront, inventory, orders and insights. All together.</p>
-            </div>
-            <Link className="button light" to="/register">
-              Let's build your business <ArrowUpRight size={19} />
-            </Link>
-          </section>
-        </>
-      )}
+      {home && <HomeSellerStory />}
     </main>
   );
 }
