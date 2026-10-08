@@ -16,6 +16,8 @@ export async function api(path, options = {}) {
   if (!response.ok) {
     const error = new Error(data.message || 'Request failed');
     error.status = response.status;
+    if (data.code === 'MAINTENANCE')
+      window.dispatchEvent(new CustomEvent('bizlaunch:maintenance', { detail: data.maintenance }));
     if (response.status === 401 && !path.startsWith('/auth/'))
       window.dispatchEvent(new Event('bizlaunch:unauthorized'));
     throw error;

@@ -74,6 +74,8 @@ app.get('/api/ready', (req, res) =>
   }),
 );
 app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api', require('./routes/platformRoutes'));
+app.use('/api', require('./middleware/maintenance'));
 app.use('/api', require('./routes/commerceRoutes'));
 app.use((req, res) => res.status(404).json({ success: false, message: 'Route not found' }));
 app.use((error, req, res, next) => {

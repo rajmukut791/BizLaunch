@@ -42,8 +42,8 @@ export function Form({ onSubmit, children, submit = 'Save changes', className = 
         setError('');
         const element = event.currentTarget;
         try {
-          await onSubmit(Object.fromEntries(new FormData(element)), element);
-          if (success) notify(success);
+          const result = await onSubmit(Object.fromEntries(new FormData(element)), element);
+          if (success && result !== false) notify(success);
         } catch (err) {
           setError(err.message);
         } finally {

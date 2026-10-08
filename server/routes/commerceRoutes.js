@@ -546,7 +546,31 @@ router.get('/admin/overview', async (req, res) => {
       },
     },
   ]);
+  const timezone = 'Asia/Dhaka';
+  const now = new Date(Date.now() + 6 * 3600000);
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) -
+      6 * 3600000 -
+      6 * 86400000,
+  );
+  const grouped = await Order.aggregate([
+    { $match: { createdAt: { $gte: start } } },
+    {
+      $group: {
+        _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone } },
+        orders: { $sum: 1 },
+      },
+    },
+  ]);
+  const counts = new Map(grouped.map((day) => [day._id, day.orders]));
+  const activity = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start.getTime() + 6 * 3600000 + index * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    return { date, orders: counts.get(date) || 0 };
+  });
   result(res, {
+    activity,
     overview: {
       users,
       businesses,

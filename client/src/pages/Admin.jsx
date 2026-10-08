@@ -1,5 +1,16 @@
 import { Link } from 'react-router-dom';
-import { Users as UsersIcon, Store, Package, ShoppingBag, ShieldCheck, Flag } from 'lucide-react';
+import './AdminPremium.css';
+import {
+  Users as UsersIcon,
+  Store,
+  Package,
+  ShoppingBag,
+  ShieldCheck,
+  Flag,
+  Wrench,
+  BarChart3,
+  ArrowUpRight,
+} from 'lucide-react';
 import { useResource } from '../lib/hooks';
 import { api, currency, date } from '../lib/api';
 import { useApp } from '../context/state';
@@ -15,68 +26,200 @@ import {
   Empty,
 } from '../components/UI';
 export function AdminDashboard() {
-  const resource = useResource('/admin/overview');
+  const resource = useResource('/admin/overview'),
+    status = useResource('/platform/status');
+  const { user } = useApp();
   return (
-    <>
-      <PageTitle
-        eyebrow="THE BIG PICTURE"
-        title="Platform overview"
-        description="Keep the marketplace trusted, active and growing."
-      />
+    <div className="admin-premium">
+      <header className="admin-page-heading">
+        <div>
+          <span className="admin-eyebrow">
+            <ShieldCheck size={14} /> YOUR PLATFORM, THOUGHTFULLY MANAGED
+          </span>
+          <h1>Platform overview</h1>
+          <p>Welcome back, {user?.name.split(' ')[0]}. A clear view of what matters today.</p>
+        </div>
+        <Link className="button secondary" to="/admin/maintenance">
+          <Wrench size={16} /> Maintenance studio
+        </Link>
+      </header>
       <State resource={resource}>
         {resource.data && (
           <>
-            <div className="stats-grid">
+            <section className="admin-command">
+              <div>
+                <span className="admin-command-label">
+                  <span />{' '}
+                  {status.data?.maintenance.enabled
+                    ? 'MAINTENANCE ACTIVE'
+                    : status.data
+                      ? 'MARKETPLACE ONLINE'
+                      : 'CHECKING AVAILABILITY'}
+                </span>
+                <h2>
+                  A trusted marketplace.
+                  <br />
+                  <span>A community worth caring for.</span>
+                </h2>
+                <p>Your people, businesses and platform operations — beautifully together.</p>
+                <Link to="/admin/businesses">
+                  Review your businesses <ArrowUpRight size={16} />
+                </Link>
+              </div>
+              <div className="admin-command-art" aria-hidden="true">
+                <div />
+                <span>
+                  <ShieldCheck size={54} strokeWidth={1.3} />
+                </span>
+                <i>✦</i>
+                <b>CARE · TRUST · GROWTH</b>
+              </div>
+            </section>
+            <div className="admin-metrics">
               {[
-                [UsersIcon, 'Users', 'users'],
-                [Store, 'Businesses', 'businesses'],
-                [Package, 'Active products', 'products'],
-                [ShoppingBag, 'Orders', 'orders'],
-              ].map(([Icon, label, key]) => (
-                <div className="stat" key={key}>
-                  <Icon size={22} />
-                  <span>{label}</span>
+                [UsersIcon, 'People', 'users', 'All registered accounts'],
+                [Store, 'Businesses', 'businesses', 'Independent brands'],
+                [Package, 'Active products', 'products', 'Current catalog'],
+                [ShoppingBag, 'Orders', 'orders', 'Orders across the platform'],
+              ].map(([Icon, label, key, note]) => (
+                <div className="admin-card admin-metric" key={key}>
+                  <div>
+                    <span className="admin-card-icon">
+                      <Icon size={19} />
+                    </span>
+                    <span className="admin-soft-label">PLATFORM</span>
+                  </div>
+                  <span className="admin-metric-label">{label}</span>
                   <strong>{resource.data.overview[key]}</strong>
+                  <small>{note}</small>
                 </div>
               ))}
             </div>
-            <div className="dashboard-grid">
-              <section className="panel">
-                <span className="icon-tile">
-                  <ShieldCheck />
-                </span>
-                <h2>{resource.data.overview.pending} businesses awaiting review</h2>
-                <p className="muted">
-                  Approve businesses before their products appear in the marketplace.
-                </p>
-                <Link className="button primary" to="/admin/businesses">
-                  Review businesses ↗
-                </Link>
+            <div className="admin-overview-grid">
+              <section className="admin-card admin-order-chart">
+                <div className="admin-card-heading">
+                  <div>
+                    <span className="admin-soft-label">A PULSE ON YOUR PLATFORM</span>
+                    <h2>Order activity</h2>
+                  </div>
+                  <span className="admin-range">Last 7 days</span>
+                </div>
+                <div
+                  className="admin-bars"
+                  role="img"
+                  aria-label={
+                    'Orders by date: ' +
+                    (resource.data.activity || [])
+                      .map((day) => day.date + ': ' + day.orders)
+                      .join(', ')
+                  }
+                >
+                  {(resource.data.activity || []).map((day) => (
+                    <div key={day.date}>
+                      <span>{day.orders}</span>
+                      <div className="admin-bar-track">
+                        <i
+                          style={{
+                            height:
+                              (Math.max(0, day.orders) /
+                                Math.max(1, ...resource.data.activity.map((d) => d.orders))) *
+                                100 +
+                              '%',
+                          }}
+                        />
+                      </div>
+                      <small>
+                        {new Date(day.date + 'T12:00:00Z').toLocaleDateString('en-GB', {
+                          weekday: 'short',
+                        })}
+                      </small>
+                    </div>
+                  ))}
+                </div>
+                <p className="admin-chart-note">New orders by day · Asia/Dhaka</p>
               </section>
-              <section className="panel">
-                <span className="icon-tile">
-                  <Flag />
+              <section className="admin-card admin-revenue">
+                <span className="admin-card-icon">
+                  <BarChart3 size={21} />
                 </span>
-                <h2>{resource.data.overview.reports} open reports</h2>
-                <p className="muted">Review customer concerns and record your resolution.</p>
-                <Link className="button secondary" to="/admin/reports">
-                  Manage reports ↗
+                <span className="admin-soft-label">DELIVERED MARKETPLACE SALES</span>
+                <strong>{currency(resource.data.overview.revenue)}</strong>
+                <p>Delivered sales after discounts. A grounded view of your marketplace’s value.</p>
+                <div>
+                  <ShieldCheck size={15} /> Revenue is recognized on delivery.
+                </div>
+                <Link to="/admin/orders">
+                  Explore orders <ArrowUpRight size={15} />
                 </Link>
               </section>
             </div>
-            <section className="panel">
-              <p className="eyebrow">DELIVERED MARKETPLACE SALES</p>
-              <div className="health-score">{currency(resource.data.overview.revenue)}</div>
-              <p className="muted">
-                Sales value after discounts, recognized for delivered store fulfillments.
-              </p>
+            <div className="admin-card-heading admin-section-title">
+              <div>
+                <span className="admin-soft-label">THE NEXT RIGHT MOVE</span>
+                <h2>Your attention, where it matters.</h2>
+              </div>
+            </div>
+            <div className="admin-attention">
+              <Link className="admin-card admin-task" to="/admin/businesses">
+                <span className="admin-card-icon">
+                  <Store size={20} />
+                </span>
+                <strong>{resource.data.overview.pending}</strong>
+                <h3>Businesses awaiting review</h3>
+                <p>Help new brands take their first step into the marketplace.</p>
+                <span>
+                  Review businesses <ArrowUpRight size={16} />
+                </span>
+              </Link>
+              <Link className="admin-card admin-task" to="/admin/reports">
+                <span className="admin-card-icon">
+                  <Flag size={20} />
+                </span>
+                <strong>{resource.data.overview.reports}</strong>
+                <h3>Open customer reports</h3>
+                <p>Listen to concerns and keep your community moving forward.</p>
+                <span>
+                  Manage reports <ArrowUpRight size={16} />
+                </span>
+              </Link>
+              <Link className="admin-card admin-task admin-task-care" to="/admin/maintenance">
+                <span className="admin-card-icon">
+                  <Wrench size={20} />
+                </span>
+                <strong>
+                  {status.data ? (status.data.maintenance.enabled ? 'Paused' : 'Online') : '—'}
+                </strong>
+                <h3>Thoughtful platform care</h3>
+                <p>Control availability, preview your message and plan your return.</p>
+                <span>
+                  Open maintenance studio <ArrowUpRight size={16} />
+                </span>
+              </Link>
+            </div>
+            <section className="admin-card admin-quick">
+              <div>
+                <h2>Keep things beautifully organized.</h2>
+                <p>Everything you need to manage your platform.</p>
+              </div>
+              <div>
+                <Link to="/admin/users">
+                  <UsersIcon size={17} /> People
+                </Link>
+                <Link to="/admin/categories">
+                  <Package size={17} /> Categories
+                </Link>
+                <Link to="/admin/orders">
+                  <ShoppingBag size={17} /> Orders
+                </Link>
+              </div>
             </section>
           </>
         )}
       </State>
-    </>
+    </div>
   );
 }
+
 export function Businesses() {
   const resource = useResource('/admin/businesses');
   return (

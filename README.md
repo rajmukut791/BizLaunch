@@ -135,3 +135,7 @@ See [API documentation](docs/API.md) and [the 39-step roadmap](ROADMAP.md).
 ## GitHub
 
 The local repository and CI workflow are prepared. Publishing requires the destination GitHub repository and authenticated Git access. After choosing a repository, add its URL as `origin` and push the local branch. GitHub upload is tracked separately in the roadmap; it is not represented as completed before an actual push.
+
+## Admin platform care
+
+Premium admin overview and Maintenance studio support custom visitor messages, preview, scheduled reopening and a 20-entry activity history. Maintenance defaults to Online. See [maintenance operations](docs/ADMIN_MAINTENANCE.md).

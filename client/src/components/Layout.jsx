@@ -18,10 +18,12 @@ import {
   Users,
   Flag,
   LogOut,
+  Wrench,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useApp } from '../context/state';
 import { Action } from './UI';
+import MaintenanceBoundary from './Maintenance';
 const sellerLinks = [
   ['/seller', 'Overview', LayoutDashboard],
   ['/seller/business', 'My business', Store],
@@ -40,6 +42,7 @@ const adminLinks = [
   ['/admin/users', 'Users', Users],
   ['/admin/orders', 'Orders', ShoppingBag],
   ['/admin/reports', 'Reports', Flag],
+  ['/admin/maintenance', 'Maintenance', Wrench],
 ];
 export function Brand() {
   return (
@@ -114,7 +117,9 @@ export function Layout() {
           {sessionError}
         </div>
       )}
-      <Outlet />
+      <MaintenanceBoundary>
+        <Outlet />
+      </MaintenanceBoundary>
       <footer className="footer">
         <div className="container footer-inner">
           <Brand />
@@ -131,7 +136,7 @@ export function Workspace() {
   const { user } = useApp();
   const links = user.role === 'seller' ? sellerLinks : adminLinks;
   return (
-    <div className="workspace">
+    <div className={user.role === 'admin' ? 'workspace admin-workspace' : 'workspace'}>
       <aside className="sidebar">
         <p className="eyebrow">{user.role} workspace</p>
         {links.map(([to, label, Icon]) => (

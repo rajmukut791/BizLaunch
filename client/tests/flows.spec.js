@@ -205,3 +205,81 @@ test('forgot password emails a link and reset restores access', async ({ page })
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
 });
+
+test('admin maintenance studio previews, pauses and reopens the marketplace', async ({
+  page,
+  browser,
+}) => {
+  await login(page, 'admin');
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.screenshot({
+    path: screenshots + '/admin-premium-dashboard.png',
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await page.goto('/admin/maintenance');
+  await expect(
+    page.getByRole('heading', { name: 'Maintenance studio', exact: true }),
+  ).toBeVisible();
+  const headline = 'A little care. A better BizLaunch.';
+  await page.getByLabel('Maintenance headline').fill(headline);
+  await page
+    .getByLabel('Message for customers & sellers')
+    .fill(
+      'We are making a few thoughtful improvements. Your account and orders are safe. Please check back shortly.',
+    );
+  await page.getByRole('button', { name: 'Preview your message' }).click();
+  await expect(
+    page.locator('.maintenance-preview').getByRole('heading', { name: headline }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: screenshots + '/admin-maintenance-studio.png',
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await page.getByLabel('Marketplace mode').selectOption('true');
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.getByRole('button', { name: 'Save maintenance settings' }).click();
+  await expect(page.locator('.maintenance-control .badge')).toHaveText('Online');
+  await expect(page.getByText('Maintenance settings saved', { exact: true })).toHaveCount(0);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Save maintenance settings' }).click();
+  await expect(page.locator('.maintenance-control .badge')).toHaveText('Maintenance');
+  const visitorContext = await browser.newContext({
+    baseURL: 'http://localhost:5174',
+    viewport: { width: 1440, height: 1000 },
+  });
+  const visitor = await visitorContext.newPage();
+  try {
+    await visitor.goto('/');
+    await expect(visitor.getByRole('heading', { name: headline })).toBeVisible();
+    await visitor.screenshot({
+      path: screenshots + '/maintenance-public-desktop.png',
+      fullPage: true,
+      animations: 'disabled',
+    });
+    expect((await visitor.request.get('/api/products')).status()).toBe(503);
+    await visitor.setViewportSize({ width: 390, height: 844 });
+    expect(await visitor.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
+    await visitor.screenshot({
+      path: screenshots + '/maintenance-public-mobile.png',
+      fullPage: true,
+      animations: 'disabled',
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
+    await page.getByLabel('Marketplace mode').selectOption('false');
+    await page.getByRole('button', { name: 'Save maintenance settings' }).click();
+    await expect(page.locator('.maintenance-control .badge')).toHaveText('Online');
+    await visitor.reload();
+    await expect(visitor.getByRole('heading', { name: /Discover good things/ })).toBeVisible();
+    expect((await visitor.request.get('/api/products')).status()).toBe(200);
+    await expect(page.getByText('Marketplace opened', { exact: true })).toBeVisible();
+  } finally {
+    await visitorContext.close();
+  }
+});

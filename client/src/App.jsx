@@ -49,6 +49,7 @@ const Users = lazy(() => import('./pages/Admin').then((module) => ({ default: mo
 const AdminReports = lazy(() =>
   import('./pages/Admin').then((module) => ({ default: module.AdminReports })),
 );
+const AdminMaintenance = lazy(() => import('./pages/AdminMaintenance'));
 function ScrollReset() {
   const { pathname } = useLocation();
   useEffect(() => {
@@ -170,6 +171,7 @@ export default function App() {
                 <Route path="users" element={<Users />} />
                 <Route path="orders" element={<Orders />} />
                 <Route path="reports" element={<AdminReports />} />
+                <Route path="maintenance" element={<AdminMaintenance />} />
               </Route>
               <Route
                 path="*"

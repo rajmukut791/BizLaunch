@@ -1,0 +1,169 @@
+.maintenance-view {
+  text-align: center;
+  max-width: 680px;
+  padding-block: 80px 95px;
+}
+.maintenance-orbit {
+  width: 160px;
+  height: 150px;
+  position: relative;
+  margin: 0 auto 30px;
+  display: grid;
+  place-items: center;
+}
+.maintenance-orbit > div {
+  position: absolute;
+  inset: 8px;
+  border: 1px solid #b7c9a4;
+  border-radius: 50%;
+  transform: rotateX(48deg) rotate(-20deg);
+}
+.maintenance-orbit > span {
+  width: 92px;
+  height: 92px;
+  border-radius: 26px;
+  background: linear-gradient(140deg, #dee9c8, #b3cba2);
+  color: #537d48;
+  display: grid;
+  place-items: center;
+  transform: rotate(-12deg);
+  box-shadow: 8px 9px 0 #d0deba;
+  animation: care-float 6s ease-in-out infinite;
+}
+.maintenance-orbit i {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  font-size: 27px;
+  color: #c3a173;
+  font-style: normal;
+}
+.maintenance-eyebrow {
+  font-size: 8px;
+  letter-spacing: 1.7px;
+  font-weight: 700;
+  color: #84956e;
+}
+.maintenance-view h1 {
+  font-size: clamp(30px, 4vw, 45px);
+  line-height: 1.2;
+  letter-spacing: -1.7px;
+  margin-block: 20px 18px;
+  overflow-wrap: anywhere;
+}
+.maintenance-view > p {
+  color: #809172;
+  font-size: 14px;
+  line-height: 1.9;
+  max-width: 510px;
+  margin: 0 auto;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.maintenance-eta,
+.maintenance-assurance {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #819477;
+  line-height: 1.8;
+}
+.maintenance-eta {
+  margin-top: 24px;
+}
+.maintenance-assurance {
+  background: #eef3e7;
+  border-radius: 12px;
+  padding: 15px;
+  margin-top: 25px;
+}
+.maintenance-eta svg,
+.maintenance-assurance svg {
+  flex-shrink: 0;
+}
+.maintenance-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  margin-top: 28px;
+}
+.maintenance-actions .button {
+  font-size: 12px;
+}
+.maintenance-actions .text-link {
+  font-size: 11px;
+}
+.maintenance-signoff {
+  display: block;
+  font-size: 10px;
+  color: #9baa8e;
+  margin-top: 32px;
+}
+.maintenance-preview {
+  max-width: 650px;
+  margin: auto;
+  padding: 35px 10px;
+}
+.maintenance-preview h1 {
+  font-size: 32px;
+}
+.maintenance-preview .maintenance-orbit {
+  margin-bottom: 15px;
+}
+.admin-maintenance-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #f4e9d8;
+  color: #937651;
+  padding: 12px 20px;
+  font-size: 10px;
+  flex-wrap: wrap;
+}
+.admin-maintenance-banner a {
+  font-weight: 700;
+}
+@keyframes care-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-12deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(-6deg);
+  }
+}
+@media (max-width: 600px) {
+  .maintenance-view {
+    padding-block: 45px 65px;
+  }
+  .maintenance-view h1 {
+    font-size: 32px;
+    letter-spacing: -1px;
+  }
+  .maintenance-view > p {
+    font-size: 13px;
+  }
+  .maintenance-assurance,
+  .maintenance-eta {
+    font-size: 10px;
+  }
+  .maintenance-actions {
+    gap: 18px;
+  }
+  .maintenance-preview {
+    padding: 25px 0;
+  }
+  .maintenance-preview h1 {
+    font-size: 27px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .maintenance-orbit > span {
+    animation: none;
+  }
+}

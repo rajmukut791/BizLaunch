@@ -867,3 +867,71 @@ test('additional trusted frontend origins are allowed while unknown origins rema
     Origin: 'https://untrusted.example',
   });
 });
+
+test('maintenance is admin-only, blocks commerce, preserves authentication and automatically reopens', async () => {
+  const Settings = require('../models/PlatformSettings');
+  const initial = (await expect('/admin/maintenance', 'GET', undefined, 'admin', 200)).maintenance;
+  const values = {
+    enabled: true,
+    title: 'A little care. A better marketplace.',
+    message: 'We are improving your experience. Please check back soon.',
+    endsAt: new Date(Date.now() + 3600000).toISOString(),
+    version: initial.version,
+  };
+  const login = await request('/auth/login', 'POST', {
+    email: 'customer2@test.example',
+    password: 'TestSecret123!',
+  });
+  assert.equal(login.status, 200);
+  const customerCookie = login.cookie.split(';')[0];
+  await expect('/admin/maintenance', 'PATCH', values, undefined, 401);
+  await expect('/admin/maintenance', 'PATCH', values, undefined, 403, { Cookie: customerCookie });
+  await expect('/admin/maintenance', 'PATCH', { ...values, enabled: 'true' }, 'admin', 400);
+  await expect('/admin/maintenance', 'PATCH', { ...values, endsAt: 'yesterday' }, 'admin', 400);
+  try {
+    const updated = (await expect('/admin/maintenance', 'PATCH', values, 'admin', 200)).maintenance;
+    assert.equal(updated.enabled, true);
+    assert.equal(updated.history.length, 1);
+    assert.equal(updated.history[0].changedBy.name, 'Test Admin');
+    const publicState = (await expect('/platform/status', 'GET', undefined, undefined, 200))
+      .maintenance;
+    assert.equal(publicState.enabled, true);
+    assert.equal(publicState.history, undefined);
+    const blocked = await fetch(base + '/products');
+    assert.equal(blocked.status, 503);
+    assert.ok(Number(blocked.headers.get('retry-after')) > 0);
+    assert.equal((await blocked.json()).code, 'MAINTENANCE');
+    await expect('/checkout', 'POST', {}, undefined, 503, { Cookie: customerCookie });
+    await expect('/auth/me', 'GET', undefined, undefined, 200, { Cookie: customerCookie });
+    await expect('/admin/overview', 'GET', undefined, 'admin', 200);
+    await expect('/products', 'GET', undefined, 'admin', 200);
+    const unverified = await User.create({
+      name: 'Unverified Admin',
+      email: 'unverified-admin@test.example',
+      role: 'admin',
+      password: 'TestSecret123!',
+    });
+    const token = require('jsonwebtoken').sign(
+      { userId: unverified.id, version: unverified.tokenVersion },
+      process.env.JWT_SECRET,
+      { algorithm: 'HS256' },
+    );
+    await expect('/products', 'GET', undefined, undefined, 503, {
+      Cookie: 'bizlaunch_session=' + token,
+    });
+    await expect('/admin/maintenance', 'PATCH', { ...values, enabled: false }, 'admin', 409);
+    await Settings.updateOne(
+      { _id: 'platform' },
+      { $set: { endsAt: new Date(Date.now() - 1000) } },
+    );
+    const resumed = (await expect('/platform/status', 'GET', undefined, undefined, 200))
+      .maintenance;
+    assert.equal(resumed.enabled, false);
+    await expect('/products', 'GET', undefined, undefined, 200);
+    const log = (await expect('/admin/maintenance', 'GET', undefined, 'admin', 200)).maintenance;
+    assert.equal(log.history.length, 2);
+    assert.equal(log.history[1].changedBy, null);
+  } finally {
+    await Settings.updateOne({ _id: 'platform' }, { $set: { enabled: false, endsAt: null } });
+  }
+});
