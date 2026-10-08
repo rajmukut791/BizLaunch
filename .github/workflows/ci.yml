@@ -1,0 +1,75 @@
+name: BizLaunch checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:8.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      MONGO_URI: mongodb://127.0.0.1:27017/bizlaunch
+      JWT_SECRET: ci-only-test-secret-at-least-32-characters
+      CLIENT_URL: http://localhost:5173
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+            server/package-lock.json
+      - run: npm ci
+      - run: npm --prefix server ci
+      - run: npm --prefix client ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+        working-directory: client
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-diagnostics
+          path: client/test-results
+  transactions:
+    runs-on: ubuntu-latest
+    env:
+      MONGO_URI: mongodb://127.0.0.1:27018/bizlaunch?directConnection=true
+      JWT_SECRET: ci-only-test-secret-at-least-32-characters
+      CLIENT_URL: http://localhost:5173
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm --prefix server ci
+      - run: docker run --name bizlaunch-rs -d -p 27018:27018 mongo:8.0 --port 27018 --replSet bizlaunch-test --bind_ip_all
+      - name: Initialize replica set
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if docker exec bizlaunch-rs mongosh --port 27018 --quiet --eval 'db.adminCommand({ ping: 1 })'; then break; fi
+            sleep 1
+          done
+          docker exec bizlaunch-rs mongosh --port 27018 --quiet --eval 'rs.initiate({_id:"bizlaunch-test",members:[{_id:0,host:"127.0.0.1:27018"}]})'
+          for attempt in {1..30}; do
+            if docker exec bizlaunch-rs mongosh --port 27018 --quiet --eval 'if (!db.hello().isWritablePrimary) quit(1)'; then break; fi
+            sleep 1
+          done
+      - run: npm test
+      - if: always()
+        run: docker rm -f bizlaunch-rs

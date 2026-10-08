@@ -1,0 +1,23 @@
+{
+  "name": "bizlaunch",
+  "private": true,
+  "scripts": {
+    "dev:client": "npm --prefix client run dev",
+    "dev:server": "npm --prefix server run dev",
+    "build": "npm --prefix client run build",
+    "lint": "npm --prefix client run lint",
+    "start": "npm --prefix server start",
+    "seed": "npm --prefix server run seed",
+    "test": "npm --prefix server test",
+    "test:e2e": "npm --prefix client run test:e2e",
+    "test:transactions": "node server/scripts/test-transactions.js"
+  },
+  "dependencies": {
+    "axios": "^1.20.0",
+    "lucide-react": "^1.52.0",
+    "react-hook-form": "^7.89.0",
+    "react-hot-toast": "^2.6.1",
+    "react-router-dom": "^7.18.4",
+    "recharts": "^3.10.1"
+  }
+}
