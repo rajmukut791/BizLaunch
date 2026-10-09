@@ -5,7 +5,10 @@ import { useApp } from '../context/state';
 import { api, currency } from '../lib/api';
 import { PageTitle, Empty, Form, Field } from '../components/UI';
 export function Cart() {
-  const { cart, setCart, user } = useApp(),
+  const { cart: storedCart, setCart, user } = useApp(),
+    cart = [...storedCart].sort((a, b) =>
+      (a.businessName || '').localeCompare(b.businessName || ''),
+    ),
     total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   return (
     <main className="container content">
@@ -17,47 +20,52 @@ export function Cart() {
       {cart.length ? (
         <div className="cart-layout">
           <div className="panel">
-            {cart.map((item) => (
-              <div className="cart-line" key={item.key}>
-                {item.image ? <img src={item.image} alt={item.name} /> : <ShoppingBag />}
-                <div>
-                  <Link to={'/products/' + item.product}>
-                    <strong>{item.name}</strong>
-                  </Link>
-                  <p className="muted">
-                    {item.variantName || 'Standard'} · {currency(item.price)}
-                  </p>
+            {cart.map((item, index) => (
+              <div key={item.key}>
+                {(index === 0 || cart[index - 1].business !== item.business) && (
+                  <h3 className="cart-store-heading">{item.businessName || 'Independent store'}</h3>
+                )}
+                <div className="cart-line">
+                  {item.image ? <img src={item.image} alt={item.name} /> : <ShoppingBag />}
+                  <div>
+                    <Link to={'/products/' + item.product}>
+                      <strong>{item.name}</strong>
+                    </Link>
+                    <p className="muted">
+                      {item.variantName || 'Standard'} · {currency(item.price)}
+                    </p>
+                  </div>
+                  <input
+                    aria-label={'Quantity for ' + item.name}
+                    type="number"
+                    min="1"
+                    max={Math.min(item.stock || 100, 100)}
+                    value={item.quantity}
+                    onChange={(event) =>
+                      setCart(
+                        cart.map((value) =>
+                          value.key === item.key
+                            ? {
+                                ...value,
+                                quantity: Math.max(
+                                  1,
+                                  Math.min(item.stock || 100, 100, Number(event.target.value) || 1),
+                                ),
+                              }
+                            : value,
+                        ),
+                      )
+                    }
+                  />
+                  <strong>{currency(item.price * item.quantity)}</strong>
+                  <button
+                    className="icon-button danger-text"
+                    aria-label={'Remove ' + item.name}
+                    onClick={() => setCart(cart.filter((value) => value.key !== item.key))}
+                  >
+                    <Trash2 size={18} />
+                  </button>
                 </div>
-                <input
-                  aria-label={'Quantity for ' + item.name}
-                  type="number"
-                  min="1"
-                  max={Math.min(item.stock || 100, 100)}
-                  value={item.quantity}
-                  onChange={(event) =>
-                    setCart(
-                      cart.map((value) =>
-                        value.key === item.key
-                          ? {
-                              ...value,
-                              quantity: Math.max(
-                                1,
-                                Math.min(item.stock || 100, 100, Number(event.target.value) || 1),
-                              ),
-                            }
-                          : value,
-                      ),
-                    )
-                  }
-                />
-                <strong>{currency(item.price * item.quantity)}</strong>
-                <button
-                  className="icon-button danger-text"
-                  aria-label={'Remove ' + item.name}
-                  onClick={() => setCart(cart.filter((value) => value.key !== item.key))}
-                >
-                  <Trash2 size={18} />
-                </button>
               </div>
             ))}
           </div>
@@ -183,6 +191,12 @@ export function Checkout() {
                 minLength={5}
                 maxLength={30}
               />
+            </div>
+            <div className="form-grid">
+              <Field label="Division" name="division" maxLength={100} />
+              <Field label="District" name="district" maxLength={100} />
+              <Field label="Area" name="area" maxLength={100} />
+              <Field label="Delivery method" name="deliveryMethod" value="standard" readOnly />
             </div>
             <Field
               label="Street address"

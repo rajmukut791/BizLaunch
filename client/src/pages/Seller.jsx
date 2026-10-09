@@ -1,3 +1,7 @@
+import CouponWorkspace, { ExpenseEditor } from './CouponWorkspace';
+import BusinessWorkspace from './BusinessWorkspace';
+import BusinessInsights from './BusinessInsights';
+import './Extended.css';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -10,7 +14,6 @@ import {
   Pencil,
   Trash2,
   Download,
-  ShieldCheck,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -85,9 +88,14 @@ function Stats({ data }) {
     <div className="stats-grid">
       {[
         [TrendingUp, 'Net delivered revenue', currency(data.revenue)],
-        [Wallet, 'Net profit', currency(data.profit)],
+        [Wallet, 'Estimated net profit', currency(data.profit)],
         [ShoppingBag, 'Total orders', data.orders],
         [Package, 'Active products', data.products],
+        [TrendingUp, 'Today’s sales', currency(data.todaySales)],
+        [ShoppingBag, 'Pending orders', data.pendingOrders],
+        [Wallet, 'Operating expenses', currency(data.expenses)],
+        [Package, 'Low stock', data.lowStock.length],
+        [ShoppingBag, 'Customers', data.customers],
       ].map(([Icon, label, value]) => (
         <div className="stat" key={label}>
           <Icon size={22} />
@@ -191,107 +199,7 @@ export function SellerDashboard() {
   );
 }
 export function BusinessSettings() {
-  const resource = useResource('/seller/business');
-  return (
-    <>
-      <PageTitle
-        eyebrow="YOUR BRAND'S HOME"
-        title="My business"
-        description="Create your store, then an administrator verifies it before products go public."
-      />
-      <State resource={resource}>
-        {resource.data &&
-          (() => {
-            const business = resource.data.business;
-            return (
-              <div className="panel form-panel">
-                {business && (
-                  <div className="info-box">
-                    <ShieldCheck />
-                    <div>
-                      <Badge>{business.verification}</Badge>
-                      <p>{business.verificationNote || 'Verification status for your business'}</p>
-                      {business.verification === 'rejected' && (
-                        <Action
-                          onClick={async () => {
-                            await api('/seller/business', {
-                              method: 'PATCH',
-                              body: { resubmit: true },
-                            });
-                            resource.reload();
-                          }}
-                        >
-                          Resubmit for review
-                        </Action>
-                      )}
-                    </div>
-                  </div>
-                )}
-                <Form
-                  key={business?._id || 'new'}
-                  submit={business ? 'Save business details' : 'Create business'}
-                  success={business ? 'Business saved' : 'Business submitted for verification'}
-                  onSubmit={async (values) => {
-                    await api('/seller/business', {
-                      method: business ? 'PATCH' : 'POST',
-                      body: values,
-                    });
-                    resource.reload();
-                  }}
-                >
-                  <Field
-                    label="Business name"
-                    name="name"
-                    defaultValue={business?.name}
-                    required
-                    minLength={2}
-                    maxLength={80}
-                  />
-                  {!business && (
-                    <Field
-                      label="Store URL"
-                      name="slug"
-                      required
-                      pattern="[a-z0-9-]{3,80}"
-                      placeholder="my-great-store"
-                    />
-                  )}
-                  {business && <p className="muted">Store URL: /stores/{business.slug}</p>}
-                  <Textarea
-                    label="Tell your story"
-                    name="description"
-                    defaultValue={business?.description}
-                    maxLength={2000}
-                  />
-                  <Field
-                    label="Business phone"
-                    name="phone"
-                    defaultValue={business?.phone}
-                    required
-                    minLength={5}
-                    maxLength={30}
-                  />
-                  <Textarea
-                    label="Business address"
-                    name="address"
-                    defaultValue={business?.address}
-                    required
-                    minLength={5}
-                    maxLength={300}
-                  />
-                  {business && (
-                    <p className="muted small-text">
-                      Changing your name, phone or address submits your business for verification
-                      again.
-                    </p>
-                  )}
-                </Form>
-              </div>
-            );
-          })()}
-      </State>
-    </>
-  );
+  return <BusinessWorkspace />;
 }
 function VariantEditor({ variants, setVariants }) {
   const update = (index, key, value) =>
@@ -333,6 +241,18 @@ function VariantEditor({ variants, setVariants }) {
             onChange={(e) => update(index, 'sku', e.target.value)}
             required
             maxLength={60}
+          />
+          <Field
+            label="Variant size"
+            value={variant.size || ''}
+            maxLength={40}
+            onChange={(e) => update(index, 'size', e.target.value)}
+          />
+          <Field
+            label="Variant color"
+            value={variant.color || ''}
+            maxLength={40}
+            onChange={(e) => update(index, 'color', e.target.value)}
           />
           <Field
             label="Price"
@@ -395,6 +315,8 @@ function ProductEditor({ product, categories, onClose, reload }) {
             price: Number(values.price || product?.price || 0),
             cost: Number(values.cost || 0),
             stock: Number(values.stock || 0),
+            weight: Number(values.weight || 0),
+            regularPrice: Number(values.regularPrice || 0),
             active: values.active === 'true',
             variants,
             ...(product ? { version: product.__v } : {}),
@@ -427,6 +349,49 @@ function ProductEditor({ product, categories, onClose, reload }) {
               <option key={category._id} value={category._id}>
                 {category.name}
               </option>
+            ))}
+          </Select>
+        </div>
+        <div className="form-grid">
+          {['sku', 'brand', 'subcategory', 'size', 'color'].map((name) => (
+            <Field
+              key={name}
+              label={name === 'sku' ? 'SKU' : name}
+              name={name}
+              defaultValue={product?.[name]}
+              maxLength={80}
+            />
+          ))}
+          <Field
+            label="Weight (kg)"
+            name="weight"
+            type="number"
+            min={0}
+            max={100000}
+            step="0.001"
+            defaultValue={product?.weight || 0}
+          />
+          <Field
+            label="Regular price before discount (BDT)"
+            name="regularPrice"
+            type="number"
+            min={0}
+            step="0.01"
+            defaultValue={product?.regularPrice || 0}
+          />
+          <Select
+            label="Product lifecycle"
+            name="listingStatus"
+            defaultValue={
+              product?.active === false
+                ? product?.listingStatus === 'draft'
+                  ? 'draft'
+                  : 'archived'
+                : 'active'
+            }
+          >
+            {['draft', 'active', 'archived'].map((value) => (
+              <option key={value}>{value}</option>
             ))}
           </Select>
         </div>
@@ -467,14 +432,6 @@ function ProductEditor({ product, categories, onClose, reload }) {
             />
           </div>
         )}
-        <Select
-          label="Listing status"
-          name="active"
-          defaultValue={product?.active === false ? 'false' : 'true'}
-        >
-          <option value="true">Active</option>
-          <option value="false">Archived</option>
-        </Select>
         <VariantEditor variants={variants} setVariants={setVariants} />
       </Form>
     </section>
@@ -722,7 +679,7 @@ export function Expenses() {
       <PageTitle
         eyebrow="KNOW WHERE IT GOES"
         title="Expenses"
-        description="Track operating costs. Product unit costs are recorded separately in product settings."
+        description="Track operating costs. Product unit costs are recorded separately. Product purchases are cash records; profit recognizes product costs when sold, avoiding double counting."
       />
       <section className="panel">
         <h2>Add an expense</h2>
@@ -745,7 +702,16 @@ export function Expenses() {
           </div>
           <div className="form-grid">
             <Select label="Category" name="category">
-              {['rent', 'marketing', 'utilities', 'salary', 'shipping', 'other'].map((c) => (
+              {[
+                'rent',
+                'marketing',
+                'utilities',
+                'salary',
+                'shipping',
+                'packaging',
+                'product_purchase',
+                'other',
+              ].map((c) => (
                 <option key={c}>{c}</option>
               ))}
             </Select>
@@ -772,6 +738,7 @@ export function Expenses() {
                     <td>
                       <strong>{expense.title}</strong>
                       <small>{expense.note}</small>
+                      <ExpenseEditor expense={expense} reload={resource.reload} />
                     </td>
                     <td>{expense.category}</td>
                     <td>{currency(expense.amount)}</td>
@@ -819,12 +786,13 @@ export function Analytics() {
         {resource.data && (
           <>
             <Stats data={resource.data.analytics} />
+            <BusinessInsights />
             <section className="panel">
               <h2>Revenue & profit</h2>
               <RevenueChart months={resource.data.analytics.months} />
               <p className="muted">
-                Net profit = delivered sales − paid refunds − delivered product costs − recorded
-                expenses. Cancelled orders contribute no revenue.
+                Estimated net profit = delivered sales − paid refunds − delivered product costs −
+                recorded expenses. Cancelled orders contribute no revenue.
               </p>
             </section>
             <div className="dashboard-grid">
@@ -843,11 +811,12 @@ export function Analytics() {
                       </strong>
                     </div>
                     <progress value={c.earned} max={c.possible} />
+                    <p className="muted">{c.detail}</p>
                   </div>
                 ))}
                 <p className="muted small-text">
-                  This score is an operational indicator based on equally weighted components, not a
-                  financial forecast.
+                  This score is an operational indicator based on transparent weighted components,
+                  not a financial forecast.
                 </p>
               </section>
               <section className="panel">
@@ -857,8 +826,13 @@ export function Analytics() {
                   ['Refunds paid', 'refunds'],
                   ['Net delivered revenue', 'revenue'],
                   ['Product costs', 'cost'],
+                  ['Gross profit', 'grossProfit'],
                   ['Operating expenses', 'expenses'],
-                  ['Net profit', 'profit'],
+                  [
+                    'Inventory purchases (cash record, excluded from expenses)',
+                    'inventoryPurchases',
+                  ],
+                  ['Estimated net profit', 'profit'],
                 ].map(([label, key]) => (
                   <div className="summary-row" key={key}>
                     <span>{label}</span>
@@ -886,138 +860,7 @@ export function Analytics() {
   );
 }
 export function Coupons() {
-  const resource = useResource('/seller/coupons');
-  const [now] = useState(() => Date.now());
-  return (
-    <>
-      <PageTitle
-        eyebrow="A LITTLE REASON TO SAY YES"
-        title="Coupons"
-        description="Discounts apply only to your store's items. Usage limits are enforced at checkout."
-      />
-      <section className="panel">
-        <h2>Create a coupon</h2>
-        <Form
-          submit="Create coupon"
-          success="Coupon created"
-          onSubmit={async (values, element) => {
-            await api('/seller/coupons', {
-              method: 'POST',
-              body: {
-                ...values,
-                percent: Number(values.percent),
-                minimum: Number(values.minimum),
-                limit: Number(values.limit),
-                expiresAt: new Date(values.expiresAt).toISOString(),
-              },
-            });
-            element.reset();
-            resource.reload();
-          }}
-        >
-          <div className="form-grid three">
-            <Field
-              label="Code"
-              name="code"
-              required
-              minLength={3}
-              maxLength={30}
-              pattern="[A-Za-z0-9_-]+"
-              placeholder="LAUNCH10"
-            />
-            <Field
-              label="Discount (%)"
-              name="percent"
-              type="number"
-              min="1"
-              max="80"
-              step="1"
-              required
-            />
-            <Field
-              label="Minimum order (BDT)"
-              name="minimum"
-              type="number"
-              min="0"
-              step=".01"
-              defaultValue="0"
-              required
-            />
-          </div>
-          <div className="form-grid">
-            <Field label="Expires at" name="expiresAt" type="datetime-local" required />
-            <Field
-              label="Usage limit"
-              name="limit"
-              type="number"
-              min="1"
-              step="1"
-              defaultValue="100"
-              required
-            />
-          </div>
-        </Form>
-      </section>
-      <State resource={resource}>
-        {resource.data?.coupons.length ? (
-          <div className="panel table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Discount</th>
-                  <th>Minimum</th>
-                  <th>Used</th>
-                  <th>Expiry</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {resource.data.coupons.map((c) => (
-                  <tr key={c._id}>
-                    <td>
-                      <strong>{c.code}</strong>
-                    </td>
-                    <td>{c.percent}%</td>
-                    <td>{currency(c.minimum)}</td>
-                    <td>
-                      {c.used} / {c.limit}
-                    </td>
-                    <td>{date(c.expiresAt)}</td>
-                    <td>
-                      <Badge>
-                        {new Date(c.expiresAt).getTime() < now
-                          ? 'expired'
-                          : c.active
-                            ? 'active'
-                            : 'disabled'}
-                      </Badge>
-                    </td>
-                    <td>
-                      <Action
-                        onClick={async () => {
-                          await api('/seller/coupons/' + c._id, {
-                            method: 'PATCH',
-                            body: { active: !c.active },
-                          });
-                          resource.reload();
-                        }}
-                      >
-                        {c.active ? 'Disable' : 'Enable'}
-                      </Action>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <Empty title="Your first offer starts here." />
-        )}
-      </State>
-    </>
-  );
+  return <CouponWorkspace />;
 }
 export function SellerReports() {
   const resource = useResource('/seller/reports/export');

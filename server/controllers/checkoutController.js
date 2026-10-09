@@ -38,6 +38,18 @@ async function reserve(item, session) {
     query['variants.0'] = { $exists: false };
     update = { $inc: { stock: -item.quantity, __v: 1 } };
   }
+  update.$push = {
+    stockMovements: {
+      type: 'SALE',
+      variantId: item.variantId || '',
+      before: item.currentStock,
+      after: item.currentStock - item.quantity,
+      delta: -item.quantity,
+      reference: item.reference || 'Checkout reservation',
+      note: 'Stock reserved for order',
+      at: new Date(),
+    },
+  };
   const product = await Product.findOneAndUpdate(query, update, {
     returnDocument: 'after',
     session,
@@ -45,20 +57,37 @@ async function reserve(item, session) {
   if (!product) fail(409, item.name + ' has insufficient stock. Refresh your cart');
 }
 async function restore(item, session) {
-  if (item.variantId) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const current = await Product.findById(item.product).session(session);
+    if (!current) throw new Error('Product missing during inventory restoration');
+    const variant = item.variantId ? current.variants.id(item.variantId) : null;
+    if (item.variantId && !variant) throw new Error('Could not restore removed variant inventory');
+    const before = variant?.stock ?? current.stock;
+    const update = {
+      $inc: {
+        __v: 1,
+        ...(variant ? { 'variants.$.stock': item.quantity } : { stock: item.quantity }),
+      },
+      $push: {
+        stockMovements: {
+          type: 'RETURN',
+          variantId: item.variantId || '',
+          before,
+          after: before + item.quantity,
+          delta: item.quantity,
+          reference: item.reference || 'Cancellation / checkout rollback',
+          at: new Date(),
+        },
+      },
+    };
     const restored = await Product.updateOne(
-      { _id: item.product, 'variants._id': item.variantId },
-      { $inc: { 'variants.$.stock': item.quantity, __v: 1 } },
+      { _id: current._id, __v: current.__v, ...(variant ? { 'variants._id': variant._id } : {}) },
+      update,
       { session },
     );
-    if (!restored.matchedCount) throw new Error('Could not restore removed variant inventory');
-  } else {
-    await Product.updateOne(
-      { _id: item.product },
-      { $inc: { stock: item.quantity, __v: 1 } },
-      { session },
-    );
+    if (restored.modifiedCount) return;
   }
+  fail(409, 'Inventory changed while restoring. Please retry.');
 }
 exports.placeOrder = async (req, res) => {
   const body = req.body || {};
@@ -75,6 +104,13 @@ exports.placeOrder = async (req, res) => {
     ['postalCode', 0, 20],
   ])
     shipping[key] = text(body.shipping?.[key] || '', key, min, max);
+  for (const key of ['division', 'district', 'area'])
+    shipping[key] = text(body.shipping?.[key] || '', key, 0, 100);
+  shipping.deliveryMethod = oneOf(
+    body.shipping?.deliveryMethod || 'standard',
+    ['standard'],
+    'delivery method',
+  );
   if (body.paymentMethod !== 'cod') fail(400, 'Cash on delivery is the supported payment method');
   const duplicate = await Order.findOne({ customer: req.user.id, checkoutKey });
   if (duplicate) {
@@ -109,6 +145,7 @@ exports.placeOrder = async (req, res) => {
             {
               _id: found._id,
               active: true,
+              $or: [{ startsAt: { $lte: new Date() } }, { startsAt: { $exists: false } }],
               expiresAt: { $gt: new Date() },
               $expr: { $lt: ['$used', '$limit'] },
             },
@@ -122,6 +159,7 @@ exports.placeOrder = async (req, res) => {
         for (const line of lines) {
           const key = String(line.product);
           if (versions.has(key)) line.version = versions.get(key);
+          line.reference = checkoutKey;
           await reserve(line, session);
           reserved.push(line);
           versions.set(key, line.version + 1);
@@ -188,6 +226,26 @@ exports.placeOrder = async (req, res) => {
         '/seller/orders',
       );
   }
+  try {
+    await require('../models/Cart').updateOne({ customer: req.user.id }, { $set: { items: [] } });
+  } catch (error) {
+    console.error('Cart cleanup failed:', error.message);
+  }
+  for (const item of placed.items) {
+    const product = await Product.findById(item.product),
+      variant = item.variantId ? product?.variants.id(item.variantId) : null,
+      remaining = variant?.stock ?? product?.stock;
+    if (remaining !== undefined && remaining <= 5) {
+      const store = await Business.findById(item.business);
+      if (store)
+        await notify(
+          store.owner,
+          remaining === 0 ? 'Product out of stock' : 'Low stock warning',
+          item.name + ' has ' + remaining + ' units remaining.',
+          '/seller/inventory',
+        );
+    }
+  }
   const order = placed.toObject();
   order.items.forEach((item) => delete item.cost);
   delete order.checkoutKey;
@@ -225,6 +283,13 @@ exports.changeStatus = async (req, res) => {
       fail(400, 'Only unconfirmed orders can be cancelled');
     if (!allowed[fulfillment.status].includes(nextStatus))
       fail(400, 'Invalid order status transition');
+    if (nextStatus === 'delivered' && req.body?.paymentConfirmed !== true)
+      fail(400, 'Confirm cash-on-delivery payment was collected');
+    const collected = money(
+      current.items
+        .filter((i) => same(i.business, businessId))
+        .reduce((sum, i) => sum + i.price * i.quantity - i.discount, 0),
+    );
     const updated = await Order.findOneAndUpdate(
       {
         _id: orderId,
@@ -233,6 +298,19 @@ exports.changeStatus = async (req, res) => {
       {
         $set: {
           'fulfillments.$.status': nextStatus,
+          ...(nextStatus === 'delivered'
+            ? {
+                'fulfillments.$.paymentStatus': 'paid',
+                'fulfillments.$.collectedAmount': collected,
+                'fulfillments.$.paidAt': new Date(),
+                'fulfillments.$.paymentReference': text(
+                  req.body?.paymentReference || 'COD collected at delivery',
+                  'Payment reference',
+                  3,
+                  120,
+                ),
+              }
+            : {}),
           ...(trackingNumber ? { 'fulfillments.$.trackingNumber': trackingNumber } : {}),
         },
         $push: { 'fulfillments.$.events': { status: nextStatus, at: new Date() } },
@@ -266,7 +344,7 @@ exports.quoteOrder = async (req, res) => {
   res.json({
     success: true,
     quote: {
-      items: calculated.lines.map(({ cost, version, ...item }) => item),
+      items: calculated.lines.map(({ cost, version, currentStock, ...item }) => item),
       subtotal: calculated.subtotal,
       discount: calculated.discount,
       total: calculated.total,
@@ -274,3 +352,7 @@ exports.quoteOrder = async (req, res) => {
     },
   });
 };
+
+exports.atomic = atomic;
+
+exports.restore = restore;

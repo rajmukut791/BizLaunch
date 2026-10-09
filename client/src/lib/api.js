@@ -1,19 +1,23 @@
+import axios from 'axios';
 export async function api(path, options = {}) {
   const form = options.body instanceof FormData;
-  const response = await fetch('/api' + path, {
-    ...options,
-    credentials: 'include',
-    headers: { ...(form ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
-    body:
-      options.body === undefined ? undefined : form ? options.body : JSON.stringify(options.body),
-  });
-  let data;
+  let response;
   try {
-    data = await response.json();
+    response = await axios({
+      url: '/api' + path,
+      method: options.method || 'GET',
+      data: options.body,
+      headers: { ...(form ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
+      withCredentials: true,
+      validateStatus: () => true,
+    });
   } catch {
     throw new Error('The server could not be reached. Try again.');
   }
-  if (!response.ok) {
+  const data = response.data;
+  if (!data || typeof data !== 'object')
+    throw new Error('The server could not be reached. Try again.');
+  if (response.status >= 400) {
     const error = new Error(data.message || 'Request failed');
     error.status = response.status;
     if (data.code === 'MAINTENANCE')
@@ -31,7 +35,12 @@ export const currency = (value) =>
     maximumFractionDigits: 2,
   }).format(value || 0);
 export const date = (value) =>
-  new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  new Date(value).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Dhaka',
+  });
 export const getId = (record) => (typeof record === 'string' ? record : record?._id || record?.id);
 export function downloadJson(data, filename) {
   const url = URL.createObjectURL(

@@ -62,4 +62,69 @@ router.patch('/admin/maintenance', protect, roles('admin'), async (req, res) => 
   if (!current) fail(409, 'Another admin updated these settings. Reload and try again.');
   res.json({ success: true, maintenance: current });
 });
+const config = (data) => ({
+  platformName: data.platformName || 'BizLaunch',
+  supportEmail: data.supportEmail || '',
+  supportPhone: data.supportPhone || '',
+  allowRegistration: data.allowRegistration !== false,
+  version: data.version || 0,
+});
+router.get('/platform/config', async (req, res) =>
+  res.set('Cache-Control', 'no-store').json({ success: true, config: config(await settings()) }),
+);
+router.get('/admin/settings', protect, roles('admin'), async (req, res) => {
+  const current = await Settings.findById('platform')
+    .populate('settingsHistory.changedBy', 'name')
+    .lean();
+  res.json({
+    success: true,
+    settings: { ...config(current || {}), history: current?.settingsHistory || [] },
+    integrations: {
+      'Gmail SMTP': require('../services/mail').available(),
+      Cloudinary: !!(
+        process.env.CLOUDINARY_CLOUD_NAME &&
+        process.env.CLOUDINARY_API_KEY &&
+        process.env.CLOUDINARY_API_SECRET
+      ),
+      'Local image uploads': true,
+      'Socket.IO notifications': true,
+      MongoDB: require('mongoose').connection.readyState === 1,
+    },
+  });
+});
+router.patch('/admin/settings', protect, roles('admin'), async (req, res) => {
+  const body = req.body || {},
+    platformName = text(body.platformName, 'Platform name', 2, 30),
+    supportPhone = text(body.supportPhone || '', 'Support phone', 0, 30),
+    supportEmail = body.supportEmail ? require('../utils/validation').email(body.supportEmail) : '';
+  if (typeof body.allowRegistration !== 'boolean') fail(400, 'Choose registration availability');
+  const version = number(body.version, 'Settings version', 0, 100000000, true);
+  await Settings.updateOne(
+    { _id: 'platform' },
+    { $setOnInsert: { ...defaults, _id: 'platform' } },
+    { upsert: true },
+  );
+  const data = {
+    platformName,
+    supportEmail,
+    supportPhone,
+    allowRegistration: body.allowRegistration,
+  };
+  const updated = await Settings.findOneAndUpdate(
+    { _id: 'platform', version },
+    {
+      $set: data,
+      $inc: { version: 1 },
+      $push: {
+        settingsHistory: {
+          $each: [{ ...data, changedBy: req.user._id, changedAt: new Date() }],
+          $slice: -20,
+        },
+      },
+    },
+    { returnDocument: 'after', runValidators: true },
+  );
+  if (!updated) fail(409, 'Settings changed. Reload before saving');
+  res.json({ success: true, config: config(updated) });
+});
 module.exports = router;

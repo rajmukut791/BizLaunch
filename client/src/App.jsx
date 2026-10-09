@@ -7,11 +7,37 @@ import { Empty } from './components/UI';
 import Auth from './pages/Auth';
 import EmailAuth from './pages/EmailAuth';
 import ExperienceMotion from './components/ExperienceMotion';
-import Marketplace, { Storefront } from './pages/Marketplace';
+import Marketplace, { Storefront, Discovery } from './pages/Marketplace';
 import Product from './pages/Product';
 import { Cart, Checkout } from './pages/Cart';
 import { Orders, OrderDetail, CustomerDashboard } from './pages/Orders';
 import Notifications from './pages/Notifications';
+const Team = lazy(() => import('./pages/Team').then((module) => ({ default: module.Team })));
+const TeamInvite = lazy(() =>
+  import('./pages/Team').then((module) => ({ default: module.TeamInvite })),
+);
+const StaffHome = lazy(() =>
+  import('./pages/Team').then((module) => ({ default: module.StaffHome })),
+);
+const Profile = lazy(() =>
+  import('./pages/Extended').then((module) => ({ default: module.Profile })),
+);
+const Wishlist = lazy(() =>
+  import('./pages/Extended').then((module) => ({ default: module.Wishlist })),
+);
+const Customers = lazy(() =>
+  import('./pages/Extended').then((module) => ({ default: module.Customers })),
+);
+const ReviewManager = lazy(() =>
+  import('./pages/Extended').then((module) => ({ default: module.ReviewManager })),
+);
+const AdminProducts = lazy(() =>
+  import('./pages/Extended').then((module) => ({ default: module.AdminProducts })),
+);
+const InventoryHistory = lazy(() =>
+  import('./pages/Extended').then((module) => ({ default: module.InventoryHistory })),
+);
+const About = lazy(() => import('./pages/Extended').then((module) => ({ default: module.About })));
 const SellerDashboard = lazy(() =>
   import('./pages/Seller').then((module) => ({ default: module.SellerDashboard })),
 );
@@ -49,6 +75,13 @@ const Users = lazy(() => import('./pages/Admin').then((module) => ({ default: mo
 const AdminReports = lazy(() =>
   import('./pages/Admin').then((module) => ({ default: module.AdminReports })),
 );
+const PlatformAnalytics = lazy(() =>
+  import('./pages/PlatformAnalytics').then((module) => ({ default: module.PlatformAnalytics })),
+);
+const Transactions = lazy(() =>
+  import('./pages/PlatformAnalytics').then((module) => ({ default: module.Transactions })),
+);
+const PlatformSettings = lazy(() => import('./pages/PlatformSettings'));
 const AdminMaintenance = lazy(() => import('./pages/AdminMaintenance'));
 function ScrollReset() {
   const { pathname } = useLocation();
@@ -63,7 +96,7 @@ function Protected({ roles, children }) {
   if (checking) return <div className="loading">Checking your session…</div>;
   if (!user)
     return <Navigate to={'/login?next=' + encodeURIComponent(location.pathname)} replace />;
-  if (roles && !roles.includes(user.role))
+  if (roles && !roles.includes(user.role) && !(user.role === 'staff' && roles.includes('seller')))
     return (
       <div className="container content">
         <Empty
@@ -80,6 +113,10 @@ function Protected({ roles, children }) {
     );
   return children;
 }
+function SellerLanding() {
+  const { user } = useApp();
+  return user.role === 'staff' ? <StaffHome /> : <SellerDashboard />;
+}
 export default function App() {
   return (
     <BrowserRouter>
@@ -91,6 +128,8 @@ export default function App() {
             <Route element={<Layout />}>
               <Route index element={<Marketplace home />} />
               <Route path="marketplace" element={<Marketplace />} />
+              <Route path="categories" element={<Discovery />} />
+              <Route path="stores" element={<Discovery stores />} />
               <Route path="login" element={<Auth />} />
               <Route path="register" element={<Auth register />} />
               <Route path="verify-email" element={<EmailAuth />} />
@@ -99,6 +138,33 @@ export default function App() {
               <Route path="products/:id" element={<Product />} />
               <Route path="stores/:slug" element={<Storefront />} />
               <Route path="cart" element={<Cart />} />
+              <Route path="about" element={<About />} />
+              <Route path="team-invite" element={<TeamInvite />} />
+              <Route
+                path="profile"
+                element={
+                  <Protected>
+                    <Profile />
+                  </Protected>
+                }
+              />
+              <Route
+                path="wishlist"
+                element={
+                  <Protected roles={['customer']}>
+                    <Wishlist />
+                  </Protected>
+                }
+              />
+              <Route
+                path="customer/reviews"
+                element={
+                  <Protected roles={['customer']}>
+                    <ReviewManager mode="customer" />
+                  </Protected>
+                }
+              />
+
               <Route
                 path="checkout"
                 element={
@@ -147,10 +213,21 @@ export default function App() {
                   </Protected>
                 }
               >
-                <Route index element={<SellerDashboard />} />
+                <Route index element={<SellerLanding />} />
+                <Route
+                  path="team"
+                  element={
+                    <Protected roles={['seller']}>
+                      <Team />
+                    </Protected>
+                  }
+                />
                 <Route path="business" element={<BusinessSettings />} />
                 <Route path="products" element={<Products />} />
                 <Route path="inventory" element={<Inventory />} />
+                <Route path="inventory/history" element={<InventoryHistory />} />
+                <Route path="customers" element={<Customers />} />
+                <Route path="reviews" element={<ReviewManager mode="seller" />} />
                 <Route path="orders" element={<Orders />} />
                 <Route path="expenses" element={<Expenses />} />
                 <Route path="analytics" element={<Analytics />} />
@@ -169,9 +246,14 @@ export default function App() {
                 <Route path="businesses" element={<Businesses />} />
                 <Route path="categories" element={<Categories />} />
                 <Route path="users" element={<Users />} />
+                <Route path="products" element={<AdminProducts />} />
+                <Route path="reviews" element={<ReviewManager mode="admin" />} />
                 <Route path="orders" element={<Orders />} />
                 <Route path="reports" element={<AdminReports />} />
                 <Route path="maintenance" element={<AdminMaintenance />} />
+                <Route path="analytics" element={<PlatformAnalytics />} />
+                <Route path="transactions" element={<Transactions />} />
+                <Route path="settings" element={<PlatformSettings />} />
               </Route>
               <Route
                 path="*"

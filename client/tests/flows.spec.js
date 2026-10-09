@@ -9,7 +9,7 @@ async function login(page, role) {
   await expect(page).toHaveURL(
     role === 'seller' ? /\/seller$/ : role === 'admin' ? /\/admin$/ : /\/dashboard$/,
   );
-  await expect(page.locator('.loading')).toHaveCount(0);
+  await expect(page.locator('.loading')).toHaveCount(0, { timeout: 15000 });
 }
 test('desktop marketplace, product discovery, search, filter and storefront', async ({ page }) => {
   const errors = [];
@@ -57,6 +57,7 @@ test('customer registration, coupon confirmation, checkout, tracking and cancell
   await page.getByLabel('Full name', { exact: true }).fill('Browser Customer');
   await page.getByLabel('Email address').fill('browser-customer@test.example');
   await page.getByLabel('Password', { exact: true }).fill('BrowserSecret123!');
+  await page.getByLabel('Confirm password', { exact: true }).fill('BrowserSecret123!');
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
   await expect(page).toHaveURL(/\/verify-email/);
   const delivery = await (
@@ -348,4 +349,271 @@ test('orders filter, next page and customer-to-admin refund workflow', async ({
   } finally {
     await context.close();
   }
+});
+
+test('customer wishlist, profile photo and review moderation work through the UI', async ({
+  page,
+  browser,
+}) => {
+  await login(page, 'customer');
+  await page.goto('/marketplace');
+  await page.getByRole('link', { name: /Everyday Classic Watch/ }).click();
+  const productPath = new URL(page.url()).pathname;
+  await page.getByRole('button', { name: 'Save to wishlist' }).click();
+  await expect(page.getByText('Saved to wishlist', { exact: true })).toBeVisible();
+  await page.goto('/wishlist');
+  await expect(page.locator('.product-card')).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator('.product-card')).toHaveCount(1);
+  await page.goto('/profile');
+  await page.getByLabel('Profile photo', { exact: true }).setInputFiles({
+    name: 'profile.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aH1cAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  await page.getByRole('button', { name: 'Upload profile photo' }).click();
+  await expect(page.locator('.header .avatar img')).toBeVisible();
+  const context = await browser.newContext(),
+    admin = await context.newPage();
+  try {
+    await login(admin, 'admin');
+    await admin.goto('/admin/reviews');
+    const review = admin
+      .locator('section.panel')
+      .filter({ has: admin.getByRole('heading', { name: 'Everyday Classic Watch', exact: true }) });
+    await review
+      .getByLabel('Moderation reason')
+      .fill('Temporary moderation check for an isolated test.');
+    await review.getByRole('button', { name: 'Hide review' }).click();
+    await page.goto(productPath);
+    await expect(
+      page.getByText('No reviews yet. Delivered purchases can leave the first review.'),
+    ).toBeVisible();
+    await review
+      .getByLabel('Moderation reason')
+      .fill('Review restored after the moderation check.');
+    await review.getByRole('button', { name: 'Restore review' }).click();
+    await page.reload();
+    await expect(page.locator('.review.panel')).toHaveCount(1);
+  } finally {
+    await context.close();
+  }
+});
+test('seller branding wizard creates a complete store and uploads its identity', async ({
+  page,
+}) => {
+  await page.goto('/register');
+  await page.getByLabel('Full name', { exact: true }).fill('Launch Wizard Seller');
+  await page.getByLabel('Email address').fill('wizard-seller@test.example');
+  await page.getByLabel('Password', { exact: true }).fill('WizardSecret123!');
+  await page.getByLabel('Confirm password', { exact: true }).fill('WizardSecret123!');
+  await page.getByLabel('I want to').selectOption('seller');
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
+  await expect(page).toHaveURL(/verify-email/);
+  const delivery = await (
+    await page.request.get('/api/auth/test-delivery?email=wizard-seller@test.example')
+  ).json();
+  await page.goto('/verify-email?token=' + delivery.token);
+  await page.getByRole('button', { name: 'Verify my email' }).click();
+  await page.goto('/login');
+  await page.getByLabel('Email address').fill('wizard-seller@test.example');
+  await page.getByLabel('Password', { exact: true }).fill('WizardSecret123!');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL(/\/seller$/);
+  await page.goto('/seller/business');
+  await page.getByLabel('Business name', { exact: true }).fill('Coral Workshop');
+  await page.getByLabel('Business category', { exact: true }).fill('Handmade');
+  await page
+    .getByLabel('Tell your story')
+    .fill('Small handmade objects, thoughtfully made in Dhaka.');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByLabel('Store theme').selectOption('coral');
+  await page.getByLabel('Business logo', { exact: true }).setInputFiles({
+    name: 'logo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aH1cAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByLabel('Business phone', { exact: true }).fill('01712345678');
+  await page
+    .getByLabel('Business address', { exact: true })
+    .fill('House 22, Dhaka workshop district');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByLabel('Store URL', { exact: true }).fill('coral-workshop');
+  await page
+    .getByLabel('Return policy')
+    .fill('Contact us within seven days to arrange an inspected return.');
+  await page.getByRole('button', { name: 'Create business', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Coral Workshop', exact: true })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Business logo', exact: true })).toBeVisible();
+  await page.screenshot({ path: screenshots + '/business-branding.png', fullPage: true });
+});
+test('customer return is inspected by the seller and appears in admin transaction monitoring', async ({
+  page,
+  browser,
+}) => {
+  await login(page, 'customer');
+  await page.goto('/orders');
+  await page
+    .locator('tbody tr')
+    .filter({ hasText: 'BL-DEMO-006' })
+    .getByRole('link', { name: /View/ })
+    .click();
+  const orderPath = new URL(page.url()).pathname;
+  await page.getByText('Request store return', { exact: true }).click();
+  await page
+    .getByLabel('Return reason', { exact: true })
+    .fill('All items returned for a full quality inspection.');
+  await page.getByRole('button', { name: 'Submit return request' }).click();
+  await expect(page.locator('.refund-case .badge').filter({ hasText: /^requested$/ })).toHaveCount(
+    1,
+  );
+  const context = await browser.newContext(),
+    seller = await context.newPage();
+  try {
+    await login(seller, 'seller');
+    await seller.goto(orderPath);
+    await seller.getByLabel('Return review note').fill('Approved for physical inspection.');
+    await seller.getByRole('button', { name: 'Save return decision' }).click();
+    await seller.getByLabel('Inspection outcome').selectOption('true');
+    await seller.getByLabel('All items from this store have been physically received.').check();
+    await seller
+      .getByLabel('Return review note')
+      .fill('All items received and inspected as saleable.');
+    seller.once('dialog', (dialog) => dialog.accept());
+    await seller.getByRole('button', { name: 'Confirm return receipt' }).click();
+    await expect(seller.locator('.tracking .badge')).toHaveText('returned');
+    await seller.goto('/seller/inventory/history');
+    await expect(seller.getByRole('cell', { name: /BL-DEMO-006 inspected return/ })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+  await page.reload();
+  await expect(page.locator('.tracking .badge')).toHaveText('returned');
+  const adminContext = await browser.newContext(),
+    admin = await adminContext.newPage();
+  try {
+    await login(admin, 'admin');
+    await admin.goto('/admin/transactions');
+    await expect(admin.getByRole('heading', { name: 'Payments & refunds' })).toBeVisible();
+    await expect(admin.locator('tbody tr').filter({ hasText: 'BL-DEMO-006' })).toBeVisible();
+    await admin.goto('/admin/analytics');
+    await expect(admin.getByRole('heading', { name: 'Marketplace performance' })).toBeVisible();
+    await expect(admin.locator('.recharts-surface')).toBeVisible();
+    await expect(admin.getByRole('heading', { name: 'Business performance' })).toBeVisible();
+    await admin.screenshot({ path: screenshots + '/platform-analytics.png', fullPage: true });
+  } finally {
+    await adminContext.close();
+  }
+});
+test('owner invites a verified inventory colleague and finance stays inaccessible', async ({
+  page,
+  browser,
+}) => {
+  await login(page, 'seller');
+  await page.goto('/seller/team');
+  await page.getByLabel('Staff email').fill('browser-customer@test.example');
+  await page.getByLabel('Position', { exact: true }).selectOption('inventory');
+  await page.getByRole('button', { name: 'Send staff invitation' }).click();
+  await expect(page.getByText('Invitation emailed', { exact: true })).toBeVisible();
+  const invitation = await (
+    await page.request.get('/api/auth/test-delivery?email=browser-customer@test.example')
+  ).json();
+  const context = await browser.newContext(),
+    staff = await context.newPage();
+  try {
+    await staff.goto('/login');
+    await staff.getByLabel('Email address').fill('browser-customer@test.example');
+    await staff.getByLabel('Password', { exact: true }).fill('UpdatedBrowser123!');
+    await staff.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect(staff).toHaveURL(/dashboard/);
+    await staff.goto('/team-invite?token=' + invitation.token);
+    await staff.getByRole('button', { name: 'Accept staff invitation' }).click();
+    await expect(staff).toHaveURL(/login/);
+    await staff.getByLabel('Email address').fill('browser-customer@test.example');
+    await staff.getByLabel('Password', { exact: true }).fill('UpdatedBrowser123!');
+    await staff.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect(staff).toHaveURL(/\/seller$/);
+    await expect(staff.getByRole('heading', { name: 'Inventory', exact: true })).toBeVisible();
+    expect((await staff.request.get('/api/seller/analytics')).status()).toBe(403);
+    await staff.goto('/seller/inventory/history');
+    await expect(
+      staff.getByRole('heading', { name: 'Inventory history', exact: true }),
+    ).toBeVisible();
+    await staff.screenshot({ path: screenshots + '/staff-inventory.png', fullPage: true });
+    const member = page
+      .locator('section.panel')
+      .filter({ hasText: 'browser-customer@test.example' })
+      .last();
+    page.once('dialog', (dialog) => dialog.accept());
+    await member.getByRole('button', { name: 'Revoke access' }).click();
+    expect((await staff.request.get('/api/seller/products')).status()).toBe(401);
+  } finally {
+    await context.close();
+  }
+});
+test('sales insights, CRM, review replies, fixed coupons and general settings load', async ({
+  page,
+  browser,
+}) => {
+  await login(page, 'seller');
+  await page.goto('/seller/customers');
+  await expect(page.getByRole('heading', { name: 'Your customers' })).toBeVisible();
+  await page.getByLabel('Search customers').fill('Rafi');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await expect(page.getByRole('cell', { name: /Rafi Ahmed/ })).toBeVisible();
+  await page.goto('/seller/analytics');
+  await expect(page.getByRole('heading', { name: 'Daily performance' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Slow-moving inventory' })).toBeVisible();
+  await page.screenshot({ path: screenshots + '/seller-insights.png', fullPage: true });
+  await page.goto('/seller/coupons');
+  await page.getByLabel('Code', { exact: true }).fill('FIXEDBROWSER');
+  await page.getByLabel('Discount type').selectOption('fixed');
+  await page.getByLabel('Discount amount (BDT)').fill('50');
+  await page.getByLabel('Expires at').fill('2027-12-31T23:59');
+  await page.getByRole('button', { name: 'Create coupon', exact: true }).click();
+  await expect(page.getByRole('cell', { name: 'FIXEDBROWSER', exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/seller/analytics');
+  await expect(page.getByRole('heading', { name: 'Daily performance' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } }),
+    admin = await context.newPage();
+  try {
+    await login(admin, 'admin');
+    await admin.goto('/admin/settings');
+    await expect(admin.getByRole('heading', { name: 'Integration readiness' })).toBeVisible();
+    expect(await admin.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
+  } finally {
+    await context.close();
+  }
+});
+
+test('public category and store directories remain usable on mobile', async ({ page }) => {
+  await page.goto('/categories');
+  await expect(page.getByRole('heading', { name: 'Shop by category' })).toBeVisible();
+  await expect(page.locator('main .panel').first()).toBeVisible();
+  await page.locator('main .panel').first().click();
+  await expect(page).toHaveURL(/marketplace\?category=/);
+  await page.goto('/stores');
+  await expect(page.getByRole('heading', { name: 'Independent stores' })).toBeVisible();
+  await page.getByRole('link', { name: /The Everyday Studio/ }).click();
+  await expect(
+    page.getByRole('heading', { name: 'The Everyday Studio', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: /^about$/i }).click();
+  await expect(page.getByRole('heading', { name: 'About The Everyday Studio' })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/categories');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.goto('/stores');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });

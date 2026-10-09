@@ -13,8 +13,10 @@ exports.request = async (req, res) => {
   if (req.user.role === 'customer' && !same(order.customer, req.user.id))
     fail(403, 'Order belongs to another customer');
   const fulfillment = order.fulfillments.find((f) => same(f.business, business));
-  if (!fulfillment || fulfillment.status !== 'delivered')
+  if (!fulfillment || !['delivered', 'returned'].includes(fulfillment.status))
     fail(400, 'Refunds are available only for delivered store items');
+  if (fulfillment.paymentStatus !== 'paid')
+    fail(400, 'Record the collected COD payment before requesting a refund');
   const maximum = money(
     order.items
       .filter((item) => same(item.business, business))
@@ -34,7 +36,7 @@ exports.request = async (req, res) => {
     {
       _id: orderId,
       'refunds.business': { $ne: business },
-      fulfillments: { $elemMatch: { business, status: 'delivered' } },
+      fulfillments: { $elemMatch: { business, status: { $in: ['delivered', 'returned'] } } },
     },
     { $push: { refunds: refund } },
     { returnDocument: 'after', runValidators: true },

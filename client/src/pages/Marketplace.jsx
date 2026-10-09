@@ -1,5 +1,14 @@
+import ReportConcern from '../components/ReportConcern';
+import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowUpRight, Search, Star, ShieldCheck, Store } from 'lucide-react';
+import {
+  ArrowUpRight,
+  Search,
+  Star,
+  ShieldCheck,
+  Store,
+  Tags as ShoppingCategory,
+} from 'lucide-react';
 import { useResource } from '../lib/hooks';
 import { currency } from '../lib/api';
 import { State, Empty, PageTitle, ProductImage } from '../components/UI';
@@ -32,6 +41,7 @@ export function ProductCard({ product }) {
 export default function Marketplace({ home = false, businessId, storeName }) {
   const [params, setParams] = useSearchParams();
   const categories = useResource('/categories');
+  const stores = useResource('/stores');
   const search = new URLSearchParams(params);
   if (businessId) search.set('business', businessId);
   const products = useResource('/products?' + search.toString());
@@ -69,6 +79,13 @@ export default function Marketplace({ home = false, businessId, storeName }) {
             )
           }
         />
+        {home && (
+          <div className="category-tabs">
+            <button onClick={() => change('sort', 'newest')}>New products</button>
+            <button onClick={() => change('sort', 'popular')}>Trending products</button>
+            <button onClick={() => change('discount', 'true')}>Special offers</button>
+          </div>
+        )}
         <div className="market-toolbar">
           <form
             className="search-box"
@@ -96,6 +113,7 @@ export default function Marketplace({ home = false, businessId, storeName }) {
             <option value="priceAsc">Price: low to high</option>
             <option value="priceDesc">Price: high to low</option>
             <option value="rating">Highest rated</option>
+            <option value="popular">Popular products</option>
           </select>
         </div>
         <div className="category-tabs">
@@ -122,7 +140,7 @@ export default function Marketplace({ home = false, businessId, storeName }) {
               event.preventDefault();
               const data = new FormData(event.currentTarget);
               const next = new URLSearchParams(params);
-              for (const key of ['min', 'max']) {
+              for (const key of ['min', 'max', 'rating', 'available', 'discount', 'business']) {
                 if (data.get(key)) next.set(key, data.get(key));
                 else next.delete(key);
               }
@@ -149,6 +167,44 @@ export default function Marketplace({ home = false, businessId, storeName }) {
                 step="0.01"
                 defaultValue={params.get('max') || ''}
               />
+            </label>
+            {!businessId && (
+              <label>
+                Store
+                <select name="business" defaultValue={params.get('business') || ''}>
+                  <option value="">All stores</option>
+                  {stores.data?.stores.map((store) => (
+                    <option key={store._id} value={store._id}>
+                      {store.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label>
+              Minimum rating
+              <select name="rating" defaultValue={params.get('rating') || ''}>
+                <option value="">Any rating</option>
+                {[3, 4, 5].map((v) => (
+                  <option key={v} value={v}>
+                    {v}+ stars
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Availability
+              <select name="available" defaultValue={params.get('available') || ''}>
+                <option value="">All products</option>
+                <option value="true">In stock</option>
+              </select>
+            </label>
+            <label>
+              Offers
+              <select name="discount" defaultValue={params.get('discount') || ''}>
+                <option value="">All prices</option>
+                <option value="true">Discounted products</option>
+              </select>
             </label>
             <button className="button secondary small">Apply</button>
             <button type="button" className="text-link" onClick={() => setParams({})}>
@@ -199,35 +255,185 @@ export default function Marketplace({ home = false, businessId, storeName }) {
           )}
         </State>
       </section>
+      {home && (
+        <section className="container market-section">
+          <PageTitle
+            eyebrow="INDEPENDENT BRANDS"
+            title="Meet your next favorite store."
+            description="Discover businesses reviewed by the platform."
+          />
+          <div className="management-grid">
+            {stores.data?.stores.map((store) => (
+              <Link className="panel" key={store._id} to={'/stores/' + store.slug}>
+                {store.logo && <img className="store-brand-logo" src={store.logo} alt="" />}
+                <h3>{store.name}</h3>
+                <p>{store.description}</p>
+                <span className="text-link">Visit store ↗</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
       {home && <HomeSellerStory />}
     </main>
   );
 }
+function StoreReviews({ slug }) {
+  const resource = useResource('/stores/' + encodeURIComponent(slug) + '/reviews');
+  return (
+    <section className="container content">
+      <State resource={resource}>
+        {resource.data && (
+          <>
+            <h2>Store reviews · {resource.data.rating || 'New'}</h2>
+            {resource.data.reviews.length ? (
+              resource.data.reviews.map((review) => (
+                <article className="panel" key={review._id}>
+                  <strong>
+                    {review.rating} / 5 · {review.product?.name}
+                  </strong>
+                  <p>{review.comment}</p>
+                  <small>{review.customer?.name}</small>
+                  {review.reply && <blockquote>{review.reply}</blockquote>}
+                </article>
+              ))
+            ) : (
+              <Empty title="No store reviews yet" />
+            )}
+          </>
+        )}
+      </State>
+    </section>
+  );
+}
 export function Storefront() {
-  const { slug } = useParams();
-  const resource = useResource('/stores/' + encodeURIComponent(slug));
+  const { slug } = useParams(),
+    resource = useResource('/stores/' + encodeURIComponent(slug)),
+    [tab, setTab] = useState('products');
   return (
     <State resource={resource}>
-      {resource.data && (
-        <>
-          <div className="container store-banner">
-            <span className="icon-tile">
-              <Store />
-            </span>
-            <div>
-              <span className="pill">
-                <ShieldCheck size={15} /> Verified business
-              </span>
-              <h1>{resource.data.business.name}</h1>
-              <p>{resource.data.business.description}</p>
-            </div>
-          </div>
-          <Marketplace
-            businessId={resource.data.business._id}
-            storeName={resource.data.business.name}
-          />
-        </>
-      )}
+      {resource.data &&
+        (() => {
+          const business = resource.data.business;
+          return (
+            <>
+              {business.coverImage && (
+                <img
+                  className="store-cover-image"
+                  src={business.coverImage}
+                  alt={business.name + ' cover'}
+                />
+              )}
+              <div
+                className={
+                  'container store-banner store-theme-preview ' + (business.theme || 'sage')
+                }
+              >
+                {business.logo ? (
+                  <img
+                    className="store-brand-logo"
+                    src={business.logo}
+                    alt={business.name + ' logo'}
+                  />
+                ) : (
+                  <span className="icon-tile">
+                    <Store />
+                  </span>
+                )}
+                <div>
+                  <span className="pill">
+                    <ShieldCheck size={15} /> Platform verified business
+                  </span>
+                  <h1>{business.name}</h1>
+                  <p>{business.description}</p>
+                </div>
+              </div>
+              <nav className="container store-tabs" aria-label="Store sections">
+                {['products', 'reviews', 'about'].map((value) => (
+                  <button
+                    className={'button ' + (tab === value ? 'primary' : 'secondary')}
+                    key={value}
+                    onClick={() => setTab(value)}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </nav>
+              {tab === 'products' ? (
+                <Marketplace businessId={business._id} storeName={business.name} />
+              ) : tab === 'reviews' ? (
+                <StoreReviews slug={slug} />
+              ) : (
+                <section className="container content">
+                  <div className="panel store-about">
+                    <h2>About {business.name}</h2>
+                    <p>{business.description}</p>
+                    <p>
+                      {business.type} · {business.category}
+                    </p>
+                    <p>{business.address}</p>
+                    <p>
+                      {business.phone} · {business.email}
+                    </p>
+                    <ReportConcern business={business._id} label="Report this business" />
+                    <h3>Delivery</h3>
+                    <p>{business.deliveryOptions || 'Standard delivery'}</p>
+                    <h3>Return policy</h3>
+                    <p>{business.returnPolicy || 'Contact the seller to discuss a return.'}</p>
+                    <div className="badges">
+                      {Object.entries(business.socialLinks || {})
+                        .filter(([, value]) => value)
+                        .map(([key, value]) => (
+                          <a
+                            className="text-link"
+                            key={key}
+                            href={value}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {key} ↗
+                          </a>
+                        ))}
+                    </div>
+                  </div>
+                </section>
+              )}
+            </>
+          );
+        })()}
     </State>
+  );
+}
+
+export function Discovery({ stores = false }) {
+  const resource = useResource(stores ? '/stores' : '/categories');
+  return (
+    <main className="container content">
+      <PageTitle
+        eyebrow="DISCOVER BIZLAUNCH"
+        title={stores ? 'Independent stores' : 'Shop by category'}
+        description={
+          stores
+            ? 'Meet the businesses behind your next discovery.'
+            : 'Find products that fit your everyday life.'
+        }
+      />
+      <State resource={resource}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {(stores ? resource.data?.stores : resource.data?.categories)?.map((item) => (
+            <Link
+              className="panel"
+              key={item._id}
+              to={stores ? '/stores/' + item.slug : '/marketplace?category=' + item._id}
+            >
+              <span className="icon-tile">{stores ? <Store /> : <ShoppingCategory />}</span>
+              <h2>{item.name}</h2>
+              <p className="muted">{stores ? item.description : 'Explore the collection'}</p>
+              <span className="text-link">{stores ? 'Visit store' : 'Browse products'} ↗</span>
+            </Link>
+          ))}
+        </div>
+      </State>
+    </main>
   );
 }

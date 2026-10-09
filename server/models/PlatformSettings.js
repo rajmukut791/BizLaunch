@@ -2,6 +2,20 @@ const mongoose = require('mongoose');
 const schema = new mongoose.Schema(
   {
     _id: { type: String, default: 'platform' },
+    platformName: { type: String, default: 'BizLaunch', maxlength: 30 },
+    supportEmail: { type: String, default: '' },
+    supportPhone: { type: String, default: '' },
+    allowRegistration: { type: Boolean, default: true },
+    settingsHistory: [
+      {
+        platformName: String,
+        supportEmail: String,
+        supportPhone: String,
+        allowRegistration: Boolean,
+        changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        changedAt: Date,
+      },
+    ],
     enabled: { type: Boolean, default: false },
     title: { type: String, default: 'A little care. A better BizLaunch.', maxlength: 90 },
     message: {

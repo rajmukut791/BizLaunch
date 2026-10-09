@@ -1,3 +1,4 @@
+const businessDetails = require('../services/businessDetails');
 const { listOrders } = require('../services/orderListing');
 const refunds = require('../controllers/refundController');
 const router = require('express').Router();
@@ -63,7 +64,13 @@ router.get('/products', async (req, res) => {
     };
   if (req.query.category) query.category = id(req.query.category);
   if (req.query.q)
-    query.name = { $regex: escapeRegex(text(req.query.q, 'Search', 1, 100)), $options: 'i' };
+    query.$and = [
+      {
+        $or: ['name', 'brand', 'sku', 'description'].map((key) => ({
+          [key]: { $regex: escapeRegex(text(req.query.q, 'Search', 1, 100)), $options: 'i' },
+        })),
+      },
+    ];
   const numericQuery = (value, label) => {
     if (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value))
       fail(400, 'Invalid ' + label);
@@ -74,8 +81,13 @@ router.get('/products', async (req, res) => {
     if (req.query.min) query.price.$gte = numericQuery(req.query.min, 'minimum price');
     if (req.query.max) query.price.$lte = numericQuery(req.query.max, 'maximum price');
   }
+  if (req.query.rating) query.rating = { $gte: numericQuery(req.query.rating, 'rating') };
+  if (req.query.available === 'true')
+    query.$or = [{ stock: { $gt: 0 } }, { 'variants.stock': { $gt: 0 } }];
+  if (req.query.discount === 'true') query.$expr = { $gt: ['$regularPrice', '$price'] };
   const sorts = {
     newest: { createdAt: -1, _id: -1 },
+    popular: { reviewCount: -1, rating: -1, _id: -1 },
     priceAsc: { price: 1, _id: 1 },
     priceDesc: { price: -1, _id: -1 },
     rating: { rating: -1, _id: -1 },
@@ -103,7 +115,7 @@ router.get('/products/:id', async (req, res) => {
     .populate('business', 'name slug verification active description owner')
     .populate('category', 'name');
   if (!product || !(await businessIsPublic(product.business))) fail(404, 'Product not found');
-  const reviews = await Review.find({ product: product._id })
+  const reviews = await Review.find({ product: product._id, hidden: { $ne: true } })
     .populate('customer', 'name')
     .sort({ createdAt: -1 })
     .limit(50);
@@ -121,15 +133,33 @@ router.get('/stores/:slug', async (req, res) => {
   result(res, { business: publicBusiness });
 });
 
-router.use(protect);
-router.get('/notifications', async (req, res) =>
-  result(res, {
-    notifications: await Notification.find({ user: req.user.id })
-      .sort({ createdAt: -1 })
-      .limit(100),
-    unread: await Notification.countDocuments({ user: req.user.id, read: false }),
-  }),
-);
+router.use(protect, require('../services/team').staffAccess);
+router.get('/notifications', async (req, res) => {
+  const requested = Number(req.query.page || 1);
+  if (!Number.isInteger(requested) || requested < 1 || requested > 100000)
+    fail(400, 'Invalid notification page');
+  const [total, unread] = await Promise.all([
+    Notification.countDocuments({ user: req.user.id }),
+    Notification.countDocuments({ user: req.user.id, read: false }),
+  ]);
+  const pages = Math.max(1, Math.ceil(total / 20)),
+    page = Math.min(requested, pages),
+    notifications = await Notification.find({ user: req.user.id })
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * 20)
+      .limit(20);
+  result(res, { notifications, unread, total, page, pages });
+});
+router.patch('/notifications/:id/read', async (req, res) => {
+  if (
+    !(await Notification.findOneAndUpdate(
+      { _id: id(req.params.id), user: req.user.id },
+      { $set: { read: true } },
+    ))
+  )
+    fail(404, 'Notification not found');
+  result(res, {});
+});
 router.patch('/notifications/read', async (req, res) => {
   await Notification.updateMany({ user: req.user.id, read: false }, { $set: { read: true } });
   result(res, {});
@@ -145,7 +175,9 @@ router.get('/orders', async (req, res) => {
 function safeOrder(order, user, business) {
   const data = order.toObject ? order.toObject() : order;
   data.refunds = data.refunds || [];
+  data.returns = data.returns || [];
   if (user.role === 'seller') {
+    data.returns = data.returns.filter((entry) => same(entry.business, business._id));
     data.refunds = data.refunds.filter((refund) => same(refund.business, business._id));
     data.items = data.items.filter((item) => same(item.business, business._id));
     data.fulfillments = data.fulfillments.filter((f) =>
@@ -189,6 +221,43 @@ router.get('/orders/:id', async (req, res) => {
 router.post('/checkout/quote', roles('customer'), checkout.quoteOrder);
 router.post('/checkout', roles('customer'), checkout.placeOrder);
 router.patch('/orders/:id/status', checkout.changeStatus);
+const returns = require('../controllers/returnController');
+router.post('/orders/:id/returns', returns.request);
+router.patch('/orders/:id/returns/:returnId', roles('seller', 'admin'), returns.review);
+router.patch('/orders/:id/payment', roles('seller', 'admin'), async (req, res) => {
+  const businessId = id(req.body?.business);
+  if (req.user.role === 'seller' && !same((await ownedBusiness(req.user))._id, businessId))
+    fail(403, 'Order belongs to another store');
+  const order = await Order.findById(id(req.params.id));
+  if (!order) fail(404, 'Order not found');
+  const f = order.fulfillments.find((f) => same(f.business, businessId));
+  if (!f || !['delivered', 'returned'].includes(f.status))
+    fail(400, 'Payment recording requires a delivered store order');
+  if (req.body?.paymentConfirmed !== true) fail(400, 'Confirm that the payment was collected');
+  const paymentReference = text(req.body?.paymentReference, 'Payment receipt reference', 3, 120),
+    amount = money(
+      order.items
+        .filter((i) => same(i.business, businessId))
+        .reduce((sum, i) => sum + i.price * i.quantity - i.discount, 0),
+    );
+  const updated = await Order.findOneAndUpdate(
+    {
+      _id: order._id,
+      fulfillments: { $elemMatch: { business: businessId, paymentStatus: { $ne: 'paid' } } },
+    },
+    {
+      $set: {
+        'fulfillments.$.paymentStatus': 'paid',
+        'fulfillments.$.collectedAmount': amount,
+        'fulfillments.$.paymentReference': paymentReference,
+        'fulfillments.$.paidAt': new Date(),
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!updated) fail(409, 'Payment has already been recorded');
+  result(res, { message: 'COD payment recorded' });
+});
 router.post('/orders/:id/refunds', roles('customer', 'admin'), refunds.request);
 router.patch('/orders/:id/refunds/:refundId', roles('admin'), refunds.review);
 router.post('/products/:id/reviews', roles('customer'), async (req, res) => {
@@ -198,7 +267,9 @@ router.post('/products/:id/reviews', roles('customer'), async (req, res) => {
   const purchased = await Order.exists({
     customer: req.user.id,
     items: { $elemMatch: { product: productId, business: product.business } },
-    fulfillments: { $elemMatch: { business: product.business, status: 'delivered' } },
+    fulfillments: {
+      $elemMatch: { business: product.business, status: { $in: ['delivered', 'returned'] } },
+    },
   });
   if (!purchased) fail(403, 'You can review a product after delivery');
   const rating = number(req.body?.rating, 'Rating', 1, 5, true);
@@ -209,19 +280,46 @@ router.post('/products/:id/reviews', roles('customer'), async (req, res) => {
     { upsert: true, returnDocument: 'after', runValidators: true },
   );
   const ratings = await Review.aggregate([
-    { $match: { product: new mongoose.Types.ObjectId(productId) } },
+    { $match: { product: new mongoose.Types.ObjectId(productId), hidden: { $ne: true } } },
     { $group: { _id: null, rating: { $avg: '$rating' }, count: { $sum: 1 } } },
   ]);
   await Product.updateOne(
     { _id: productId },
-    { $set: { rating: ratings[0].rating, reviewCount: ratings[0].count } },
+    { $set: { rating: ratings[0]?.rating || 0, reviewCount: ratings[0]?.count || 0 } },
   );
+  const store = await Business.findById(product.business);
+  if (store)
+    await notify(
+      store.owner,
+      'New product review',
+      product.name + ' received a customer review.',
+      '/seller/reviews',
+    );
   result(res, { review }, 201);
 });
 router.post('/reports', async (req, res) => {
   const business = await Business.findById(id(req.body?.business));
   if (!business) fail(404, 'Business not found');
+  const targetType = oneOf(
+    req.body?.targetType || 'business',
+    ['business', 'product', 'review'],
+    'report target',
+  );
+  let targetId = business._id;
+  if (targetType === 'product') {
+    targetId = id(req.body?.targetId);
+    if (!(await Product.exists({ _id: targetId, business: business._id })))
+      fail(400, 'Product does not belong to the reported business');
+  }
+  if (targetType === 'review') {
+    targetId = id(req.body?.targetId);
+    const target = await Review.findById(targetId);
+    if (!target || !(await Product.exists({ _id: target.product, business: business._id })))
+      fail(400, 'Review does not belong to the reported business');
+  }
   const report = await Report.create({
+    targetType,
+    targetId,
     reporter: req.user.id,
     business: business._id,
     reason: text(req.body?.reason, 'Reason', 10, 2000),
@@ -230,13 +328,19 @@ router.post('/reports', async (req, res) => {
 });
 
 router.get('/seller/business', roles('seller'), async (req, res) =>
-  result(res, { business: await Business.findOne({ owner: req.user.id }) }),
+  result(res, {
+    business: req.staff
+      ? await ownedBusiness(req.user)
+      : await Business.findOne({ owner: req.user.id }),
+  }),
 );
 router.post('/seller/business', roles('seller'), async (req, res) => {
+  if (req.staff) fail(403, 'Only a business owner can create a business');
   const name = text(req.body?.name, 'Business name', 2, 80);
   const slug = slugify(text(req.body?.slug, 'Store URL', 3, 80));
   if (slug.length < 3) fail(400, 'Store URL must contain at least 3 letters or numbers');
   const business = await Business.create({
+    ...businessDetails(req.body),
     owner: req.user.id,
     name,
     slug,
@@ -254,7 +358,7 @@ router.post('/seller/business', roles('seller'), async (req, res) => {
 });
 router.patch('/seller/business', roles('seller'), async (req, res) => {
   const business = await ownedBusiness(req.user);
-  const data = {};
+  const data = businessDetails(req.body);
   for (const [key, min, max] of [
     ['name', 2, 80],
     ['description', 0, 2000],
@@ -266,7 +370,11 @@ router.patch('/seller/business', roles('seller'), async (req, res) => {
     data.verification = 'pending';
     data.verificationNote = '';
   }
-  if (data.name || data.address || data.phone) {
+  if (
+    ['name', 'address', 'phone'].some(
+      (key) => data[key] !== undefined && data[key] !== business[key],
+    )
+  ) {
     data.verification = 'pending';
     data.verificationNote = 'Business details changed; verification required';
   }
@@ -280,13 +388,16 @@ router.patch('/seller/business', roles('seller'), async (req, res) => {
 router.get('/seller/analytics', roles('seller'), async (req, res) =>
   result(res, { analytics: await analytics(await ownedBusiness(req.user)) }),
 );
-router.get('/seller/products', roles('seller'), async (req, res) =>
+router.get('/seller/products', roles('seller'), async (req, res) => {
+  const products = await Product.find({ business: (await ownedBusiness(req.user))._id })
+    .populate('category', 'name')
+    .sort({ createdAt: -1 });
   result(res, {
-    products: await Product.find({ business: (await ownedBusiness(req.user))._id })
-      .populate('category', 'name')
-      .sort({ createdAt: -1 }),
-  }),
-);
+    products: products.map((p) =>
+      req.staff && !req.member.permissions.includes('finance') ? publicProduct(p) : p,
+    ),
+  });
+});
 function productData(body, creating) {
   const data = {};
   if (creating || body.name !== undefined) data.name = text(body.name, 'Product name', 2, 120);
@@ -303,12 +414,28 @@ function productData(body, creating) {
         key === 'stock',
       );
   if (body.active !== undefined) data.active = boolean(body.active, 'Active');
+  for (const key of ['sku', 'brand', 'subcategory', 'size', 'color'])
+    if (body[key] !== undefined) data[key] = text(body[key], key, 0, 80);
+  if (body.weight !== undefined) data.weight = number(body.weight, 'Weight', 0, 100000);
+  if (body.regularPrice !== undefined)
+    data.regularPrice = number(body.regularPrice, 'Regular price', 0, 1000000);
+  if (body.listingStatus !== undefined) {
+    data.listingStatus = oneOf(
+      body.listingStatus,
+      ['draft', 'active', 'archived'],
+      'listing status',
+    );
+    data.active = data.listingStatus === 'active';
+  }
+
   if (body.variants !== undefined) {
     if (!Array.isArray(body.variants) || body.variants.length > 30)
       fail(400, 'Use at most 30 variants');
     data.variants = body.variants.map((variant) => ({
       ...(variant._id ? { _id: id(variant._id) } : {}),
       name: text(variant.name, 'Variant name', 1, 80),
+      size: text(variant.size || '', 'Variant size', 0, 40),
+      color: text(variant.color || '', 'Variant color', 0, 40),
       sku: text(variant.sku, 'SKU', 1, 60),
       price: number(variant.price, 'Variant price', 0.01, 1000000),
       cost: number(variant.cost ?? 0, 'Variant cost', 0, 1000000),
@@ -327,7 +454,30 @@ router.post('/seller/products', roles('seller'), async (req, res) => {
   const business = await ownedBusiness(req.user);
   const data = productData(req.body || {}, true);
   if (!(await Category.exists({ _id: data.category }))) fail(400, 'Choose an existing category');
-  const product = await Product.create({ ...data, business: business._id });
+  if (data.regularPrice && data.regularPrice < data.price)
+    fail(400, 'Regular price cannot be below selling price');
+  for (const variant of data.variants || [])
+    if (!variant._id) variant._id = new mongoose.Types.ObjectId().toString();
+  const movements = (data.variants?.length ? data.variants : [{ stock: data.stock }]).map((v) => ({
+    type: 'PURCHASE',
+    before: 0,
+    after: v.stock,
+    delta: v.stock,
+    variantId: v._id || '',
+    actor: req.user._id,
+    note: 'Opening stock',
+    at: new Date(),
+  }));
+  const product = await Product.create({
+    ...data,
+    business: business._id,
+    stockMovements: movements,
+  });
+  if (product.variants.length) {
+    product.stockMovements.forEach((m, i) => (m.variantId = product.variants[i].id));
+    await product.save();
+  }
+
   result(res, { product }, 201);
 });
 router.patch('/seller/products/:id', roles('seller'), async (req, res) => {
@@ -352,9 +502,45 @@ router.patch('/seller/products/:id', roles('seller'), async (req, res) => {
     if (data.variants.some((v) => v._id && !existing.has(v._id)))
       fail(400, 'Variant does not belong to this product');
   }
+  if (
+    (data.regularPrice ?? current.regularPrice) &&
+    (data.regularPrice ?? current.regularPrice) < (data.price ?? current.price)
+  )
+    fail(400, 'Regular price cannot be below selling price');
+  for (const variant of data.variants || [])
+    if (!variant._id) variant._id = new mongoose.Types.ObjectId().toString();
+  const movements = [];
+  if (data.stock !== undefined && data.stock !== current.stock)
+    movements.push({
+      type: 'ADJUSTMENT',
+      before: current.stock,
+      after: data.stock,
+      delta: data.stock - current.stock,
+      actor: req.user._id,
+      note: 'Product editor',
+      at: new Date(),
+    });
+  for (const incoming of data.variants || []) {
+    const previous = current.variants.id(incoming._id)?.stock || 0;
+    if (incoming.stock !== previous)
+      movements.push({
+        type: 'ADJUSTMENT',
+        before: previous,
+        after: incoming.stock,
+        delta: incoming.stock - previous,
+        variantId: incoming._id || '',
+        actor: req.user._id,
+        note: 'Variant editor',
+        at: new Date(),
+      });
+  }
   const product = await Product.findOneAndUpdate(
     { _id: current._id, business: business._id, __v: version },
-    { $set: data, $inc: { __v: 1 } },
+    {
+      $set: data,
+      $inc: { __v: 1 },
+      ...(movements.length ? { $push: { stockMovements: { $each: movements } } } : {}),
+    },
     { returnDocument: 'after', runValidators: true },
   );
   if (!product) fail(409, 'Product changed. Reload before editing stock');
@@ -364,7 +550,7 @@ router.delete('/seller/products/:id', roles('seller'), async (req, res) => {
   const business = await ownedBusiness(req.user);
   const product = await Product.findOneAndUpdate(
     { _id: id(req.params.id), business: business._id },
-    { $set: { active: false }, $inc: { __v: 1 } },
+    { $set: { active: false, listingStatus: 'archived' }, $inc: { __v: 1 } },
     { returnDocument: 'after' },
   );
   if (!product) fail(404, 'Product not found');
@@ -383,34 +569,14 @@ router.post(
     const product = await Product.findOne({ _id: id(req.params.id), business: business._id });
     if (!product) fail(404, 'Product not found');
     if (!req.file) fail(400, 'Choose a PNG, JPEG or WebP image');
-    const buffer = req.file.buffer;
-    let extension;
-    if (
-      buffer.length > 24 &&
-      buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-    )
-      extension = 'png';
-    else if (buffer.length > 3 && buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255)
-      extension = 'jpg';
-    else if (
-      buffer.length > 12 &&
-      buffer.toString('ascii', 0, 4) === 'RIFF' &&
-      buffer.toString('ascii', 8, 12) === 'WEBP'
-    )
-      extension = 'webp';
-    else fail(400, 'Only PNG, JPEG and WebP files are accepted');
-    const filename = randomUUID() + '.' + extension;
-    const folder = path.join(__dirname, '../uploads');
-    await fs.mkdir(folder, { recursive: true });
-    await fs.writeFile(path.join(folder, filename), buffer, { flag: 'wx' });
-    const image = '/uploads/' + filename;
+    const image = await require('../services/assets').saveImage(req.file);
     const updated = await Product.findOneAndUpdate(
       { _id: product._id, business: business._id, 'images.7': { $exists: false } },
       { $push: { images: image }, $inc: { __v: 1 } },
       { returnDocument: 'after' },
     );
     if (!updated) {
-      await fs.unlink(path.join(folder, filename));
+      if (image.startsWith('/uploads/')) await fs.unlink(path.join(__dirname, '..', image));
       fail(400, 'Maximum 8 images per product');
     }
     result(res, { product: updated }, 201);
@@ -441,7 +607,16 @@ router.post('/seller/expenses', roles('seller'), async (req, res) => {
     title: text(req.body?.title, 'Title', 2, 120),
     category: oneOf(
       req.body?.category,
-      ['rent', 'marketing', 'utilities', 'salary', 'shipping', 'other'],
+      [
+        'rent',
+        'marketing',
+        'utilities',
+        'salary',
+        'shipping',
+        'packaging',
+        'product_purchase',
+        'other',
+      ],
       'expense category',
     ),
     amount: number(req.body?.amount, 'Amount', 0.01, 10000000),
@@ -449,6 +624,36 @@ router.post('/seller/expenses', roles('seller'), async (req, res) => {
     note: text(req.body?.note || '', 'Note', 0, 1000),
   });
   result(res, { expense }, 201);
+});
+router.patch('/seller/expenses/:id', roles('seller'), async (req, res) => {
+  const expense = await Expense.findOneAndUpdate(
+    { _id: id(req.params.id), business: (await ownedBusiness(req.user))._id },
+    {
+      $set: {
+        title: text(req.body?.title, 'Title', 2, 120),
+        category: oneOf(
+          req.body?.category,
+          [
+            'rent',
+            'marketing',
+            'utilities',
+            'salary',
+            'shipping',
+            'packaging',
+            'product_purchase',
+            'other',
+          ],
+          'expense category',
+        ),
+        amount: number(req.body?.amount, 'Amount', 0.01, 10000000),
+        date: parseDate(req.body?.date, 'Date'),
+        note: text(req.body?.note || '', 'Note', 0, 1000),
+      },
+    },
+    { returnDocument: 'after', runValidators: true },
+  );
+  if (!expense) fail(404, 'Expense not found');
+  result(res, { expense });
 });
 router.delete('/seller/expenses/:id', roles('seller'), async (req, res) => {
   const expense = await Expense.findOneAndDelete({
@@ -471,10 +676,27 @@ router.post('/seller/coupons', roles('seller'), async (req, res) => {
     fail(400, 'Use letters, numbers, underscore or dash in a coupon code');
   const expiresAt = parseDate(req.body?.expiresAt, 'Expiry');
   if (expiresAt <= new Date()) fail(400, 'Expiry must be in the future');
+  const discountType = oneOf(
+    req.body?.discountType || 'percentage',
+    ['percentage', 'fixed'],
+    'discount type',
+  );
+  const discountValue = number(
+    req.body?.discountValue ?? req.body?.percent,
+    'Discount value',
+    discountType === 'fixed' ? 0.01 : 1,
+    discountType === 'fixed' ? 1000000 : 80,
+    discountType === 'percentage',
+  );
+  const startsAt = req.body?.startsAt ? parseDate(req.body.startsAt, 'Start date') : new Date(0);
+  if (startsAt >= expiresAt) fail(400, 'Coupon start date must precede expiry');
   const coupon = await Coupon.create({
+    discountType,
+    discountValue,
+    startsAt,
     business: (await ownedBusiness(req.user))._id,
     code,
-    percent: number(req.body?.percent, 'Discount percentage', 1, 80, true),
+    percent: discountType === 'percentage' ? discountValue : undefined,
     minimum: number(req.body?.minimum ?? 0, 'Minimum purchase', 0, 1000000),
     limit: number(req.body?.limit ?? 100, 'Usage limit', 1, 1000000, true),
     expiresAt,
@@ -482,13 +704,61 @@ router.post('/seller/coupons', roles('seller'), async (req, res) => {
   result(res, { coupon }, 201);
 });
 router.patch('/seller/coupons/:id', roles('seller'), async (req, res) => {
+  const business = await ownedBusiness(req.user),
+    current = await Coupon.findOne({ _id: id(req.params.id), business: business._id });
+  if (!current) fail(404, 'Coupon not found');
+  if (Object.keys(req.body || {}).length === 1 && req.body.active !== undefined) {
+    const coupon = await Coupon.findByIdAndUpdate(
+      current._id,
+      { $set: { active: boolean(req.body.active, 'Active') } },
+      { returnDocument: 'after' },
+    );
+    return result(res, { coupon });
+  }
+  if (current.used) fail(409, 'Used coupon terms cannot be changed');
+  const discountType = oneOf(req.body?.discountType, ['percentage', 'fixed'], 'discount type'),
+    discountValue = number(
+      req.body?.discountValue,
+      'Discount value',
+      discountType === 'fixed' ? 0.01 : 1,
+      discountType === 'fixed' ? 1000000 : 80,
+      discountType === 'percentage',
+    );
+  const code = text(req.body?.code, 'Coupon code', 3, 30).toUpperCase();
+  if (!/^[A-Z0-9_-]+$/.test(code)) fail(400, 'Invalid coupon code');
+  const expiresAt = parseDate(req.body.expiresAt, 'Expiry'),
+    startsAt = req.body.startsAt ? parseDate(req.body.startsAt, 'Start') : new Date(0);
+  if (expiresAt <= new Date() || startsAt >= expiresAt)
+    fail(400, 'Choose a valid future coupon schedule');
+  const version = number(req.body.version, 'Coupon version', 0, 100000000, true);
   const coupon = await Coupon.findOneAndUpdate(
-    { _id: id(req.params.id), business: (await ownedBusiness(req.user))._id },
-    { $set: { active: boolean(req.body?.active, 'Active') } },
-    { returnDocument: 'after' },
+    { _id: current._id, used: 0, __v: version },
+    {
+      $set: {
+        code,
+        discountType,
+        discountValue,
+        percent: discountType === 'percentage' ? discountValue : undefined,
+        minimum: number(req.body.minimum, 'Minimum', 0, 1000000),
+        limit: number(req.body.limit, 'Limit', 1, 1000000, true),
+        startsAt,
+        expiresAt,
+      },
+      $inc: { __v: 1 },
+    },
+    { returnDocument: 'after', runValidators: true },
   );
-  if (!coupon) fail(404, 'Coupon not found');
+  if (!coupon) fail(409, 'Coupon changed or has been used. Reload.');
   result(res, { coupon });
+});
+router.delete('/seller/coupons/:id', roles('seller'), async (req, res) => {
+  const coupon = await Coupon.findOneAndDelete({
+    _id: id(req.params.id),
+    business: (await ownedBusiness(req.user))._id,
+    used: 0,
+  });
+  if (!coupon) fail(409, 'Only your unused coupons can be deleted');
+  result(res, {});
 });
 router.get('/seller/reports/export', roles('seller'), async (req, res) => {
   const business = await ownedBusiness(req.user);
@@ -527,7 +797,7 @@ router.get('/admin/overview', async (req, res) => {
                   $filter: {
                     input: '$fulfillments',
                     as: 'f',
-                    cond: { $eq: ['$$f.status', 'delivered'] },
+                    cond: { $in: ['$$f.status', ['delivered', 'returned']] },
                   },
                 },
                 as: 'f',
@@ -595,10 +865,7 @@ router.get('/admin/overview', async (req, res) => {
 });
 router.get('/admin/businesses', async (req, res) =>
   result(res, {
-    businesses: await Business.find()
-      .populate('owner', 'name email')
-      .sort({ createdAt: -1 })
-      .limit(200),
+    businesses: await Business.find().populate('owner', 'name email').sort({ createdAt: -1 }),
   }),
 );
 router.patch('/admin/businesses/:id', async (req, res) => {
@@ -682,12 +949,18 @@ router.get('/admin/reports', async (req, res) =>
   }),
 );
 router.patch('/admin/reports/:id', async (req, res) => {
+  const resolution = text(
+    req.body?.resolution || '',
+    'Resolution',
+    req.body?.status === 'open' ? 0 : 5,
+    1000,
+  );
   const report = await Report.findByIdAndUpdate(
     id(req.params.id),
     {
       $set: {
         status: oneOf(req.body?.status, ['open', 'resolved', 'dismissed'], 'report status'),
-        resolution: text(req.body?.resolution || '', 'Resolution', 0, 1000),
+        resolution,
       },
     },
     { returnDocument: 'after' },

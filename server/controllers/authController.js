@@ -17,6 +17,7 @@ const publicUser = (user) => ({
   avatar: user.avatar,
   status: user.status,
   emailVerified: user.emailVerified,
+  permissions: user.staffPermissions || [],
 });
 function session(res, user) {
   const token = jwt.sign({ userId: user.id, version: user.tokenVersion }, process.env.JWT_SECRET, {
@@ -26,10 +27,18 @@ function session(res, user) {
   res.cookie('bizlaunch_session', token, cookieOptions());
 }
 exports.register = async (req, res) => {
+  const configuration = await require('../models/PlatformSettings').findById('platform').lean();
+  if (configuration?.allowRegistration === false)
+    fail(503, 'New registrations are temporarily paused. Existing accounts can still sign in.');
   const data = req.body || {};
   const name = text(data.name, 'Name', 2, 60);
   const normalizedEmail = email(data.email);
   const secret = password(data.password);
+  if (
+    data.confirmPassword !== undefined &&
+    text(data.confirmPassword, 'Confirm password', 8, 72) !== secret
+  )
+    fail(400, 'Passwords must match');
   const role = data.role || 'customer';
   if (!['customer', 'seller'].includes(role)) fail(400, 'Choose a customer or seller account');
   const phone = text(data.phone || '', 'Phone', 0, 30);
@@ -48,6 +57,8 @@ exports.login = async (req, res) => {
   if (!user || !(await user.comparePassword(secret))) fail(401, 'Email or password is incorrect');
   if (user.status !== 'active') fail(403, 'Your account is suspended');
   if (!user.emailVerified) fail(403, 'Verify your email before signing in');
+  if (user.role === 'staff')
+    user.staffPermissions = (await require('../services/team').memberFor(user)).permissions;
   user.lastLogin = new Date();
   await user.save();
   session(res, user);

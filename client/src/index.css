@@ -1,4 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@400;500;600;650;700;750;800&display=swap');
+@import 'tailwindcss/theme';
+@import 'tailwindcss/utilities';
 :root {
   font-family: 'DM Sans', Arial, sans-serif;
   color: #20352f;

@@ -13,8 +13,11 @@ async function sendLink(user, purpose, token) {
   );
   url.searchParams.set('token', token);
   const message = accountEmail(user, purpose, url.href);
+  return sendMessage(user.email, message, { purpose, token, url: url.href });
+}
+async function sendMessage(address, message, metadata = {}) {
   if (isTest()) {
-    deliveries.set(user.email, { purpose, token, url: url.href, ...message });
+    deliveries.set(address, { ...metadata, ...message });
     return;
   }
   if (!available()) throw new Error('Email delivery is unavailable');
@@ -30,13 +33,14 @@ async function sendLink(user, purpose, token) {
   });
   await transport.sendMail({
     from: process.env.MAIL_FROM,
-    to: user.email,
+    to: address,
     ...message,
   });
 }
 module.exports = {
   available,
   sendLink,
+  sendMessage,
   isTest,
   testDelivery: (address) => (isTest() ? deliveries.get(address) : undefined),
 };

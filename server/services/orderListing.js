@@ -1,6 +1,14 @@
 const mongoose = require('mongoose');
 const { fail } = require('../utils/validation');
-const states = ['placed', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+const states = [
+  'placed',
+  'confirmed',
+  'processing',
+  'shipped',
+  'delivered',
+  'cancelled',
+  'returned',
+];
 const refundStates = ['requested', 'approved', 'completed', 'rejected'];
 function integer(value, fallback, min, max) {
   if (value === undefined) return fallback;
@@ -115,7 +123,7 @@ async function listOrders(Order, user, business, query) {
     $filter: {
       input: '$fulfillments',
       as: 'entry',
-      cond: { $not: [{ $in: ['$$entry.status', ['delivered', 'cancelled']] }] },
+      cond: { $not: [{ $in: ['$$entry.status', ['delivered', 'cancelled', 'returned']] }] },
     },
   };
   const summary = [

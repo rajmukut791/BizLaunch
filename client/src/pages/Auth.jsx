@@ -16,7 +16,7 @@ export default function Auth({ register = false }) {
       !['/login', '/register'].includes(next)
     )
       return next;
-    return account.role === 'seller'
+    return ['seller', 'staff'].includes(account.role)
       ? '/seller'
       : account.role === 'admin'
         ? '/admin'
@@ -76,6 +76,8 @@ export default function Auth({ register = false }) {
         <Form
           submit={register ? 'Create account' : 'Sign in'}
           onSubmit={async (data) => {
+            if (register && data.confirmPassword !== data.password)
+              throw new Error('Passwords must match');
             const result = await api('/auth/' + (register ? 'register' : 'login'), {
               method: 'POST',
               body: data,
@@ -128,6 +130,15 @@ export default function Auth({ register = false }) {
                 type="tel"
                 autoComplete="tel"
                 maxLength={30}
+              />
+              <Field
+                label="Confirm password"
+                name="confirmPassword"
+                type="password"
+                required
+                minLength={8}
+                maxLength={72}
+                autoComplete="new-password"
               />
               <Select label="I want to" name="role" defaultValue="customer">
                 <option value="customer">Shop & discover brands</option>

@@ -251,6 +251,10 @@ async function seed() {
             {
               business: business._id,
               status: 'delivered',
+              paymentStatus: 'paid',
+              collectedAmount: product.price * quantity,
+              paidAt: delivered,
+              paymentReference: 'DEMO-COD-' + index,
               trackingNumber: 'DEMO-' + index,
               events: [
                 { status: 'placed', at: placed },

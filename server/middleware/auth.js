@@ -14,6 +14,10 @@ async function protect(req, res, next) {
   if (!user || user.tokenVersion !== payload.version) fail(401, 'Please sign in again');
   if (user.status !== 'active') fail(403, 'Your account is suspended');
   if (!user.emailVerified) fail(403, 'Verify your email before signing in');
+  if (user.role === 'staff') {
+    req.member = await require('../services/team').memberFor(user);
+    user.staffPermissions = req.member.permissions;
+  }
   req.user = user;
   next();
 }

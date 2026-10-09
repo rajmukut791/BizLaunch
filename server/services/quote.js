@@ -35,6 +35,7 @@ async function quote(body, session = null) {
       quantity,
       discount: 0,
       version: product.__v,
+      currentStock: variant?.stock ?? product.stock,
     });
   }
   let coupon;
@@ -42,6 +43,7 @@ async function quote(body, session = null) {
     coupon = await Coupon.findOne({
       code: text(body.couponCode, 'Coupon code', 3, 30).toUpperCase(),
       active: true,
+      $or: [{ startsAt: { $lte: new Date() } }, { startsAt: { $exists: false } }],
       expiresAt: { $gt: new Date() },
       $expr: { $lt: ['$used', '$limit'] },
     }).session(session);
@@ -52,9 +54,24 @@ async function quote(body, session = null) {
     );
     if (!eligible.length || eligibleTotal < coupon.minimum)
       fail(400, 'This coupon minimum is not met for its store');
-    eligible.forEach((line) => {
-      line.discount = money((line.price * line.quantity * coupon.percent) / 100);
-    });
+    if (coupon.discountType === 'fixed') {
+      const totalDiscount = money(Math.min(coupon.discountValue, eligibleTotal));
+      let remaining = totalDiscount;
+      eligible.forEach((line, index) => {
+        const lineTotal = line.price * line.quantity;
+        line.discount =
+          index === eligible.length - 1
+            ? money(remaining)
+            : Math.min(money((totalDiscount * lineTotal) / eligibleTotal), money(remaining));
+        remaining = money(remaining - line.discount);
+      });
+    } else
+      eligible.forEach(
+        (line) =>
+          (line.discount = money(
+            (line.price * line.quantity * (coupon.discountValue || coupon.percent)) / 100,
+          )),
+      );
   }
   const subtotal = money(lines.reduce((sum, line) => sum + line.price * line.quantity, 0)),
     discount = money(lines.reduce((sum, line) => sum + line.discount, 0));

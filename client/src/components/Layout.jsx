@@ -1,3 +1,4 @@
+import { useResource } from '../lib/hooks';
 import '../pages/AdminPremium.css';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
@@ -21,7 +22,7 @@ import {
   LogOut,
   Wrench,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '../context/state';
 import { Action } from './UI';
 import MaintenanceBoundary from './Maintenance';
@@ -30,6 +31,10 @@ const sellerLinks = [
   ['/seller/business', 'My business', Store],
   ['/seller/products', 'Products', Package],
   ['/seller/inventory', 'Inventory', Boxes],
+  ['/seller/inventory/history', 'Stock history', Receipt],
+  ['/seller/customers', 'Customers', Users],
+  ['/seller/team', 'Staff & permissions', Users],
+  ['/seller/reviews', 'Reviews', Tags],
   ['/seller/orders', 'Orders', ShoppingBag],
   ['/seller/expenses', 'Expenses', Receipt],
   ['/seller/analytics', 'Analytics & health', BarChart3],
@@ -41,26 +46,42 @@ const adminLinks = [
   ['/admin/businesses', 'Verification', ShieldCheck],
   ['/admin/categories', 'Categories', Tags],
   ['/admin/users', 'Users', Users],
+  ['/admin/products', 'Products', Package],
+  ['/admin/reviews', 'Reviews', Tags],
   ['/admin/orders', 'Orders', ShoppingBag],
   ['/admin/reports', 'Reports', Flag],
   ['/admin/maintenance', 'Maintenance', Wrench],
+  ['/admin/analytics', 'Platform analytics', BarChart3],
+  ['/admin/transactions', 'Transactions', Receipt],
+  ['/admin/settings', 'System settings', Wrench],
 ];
 export function Brand() {
+  const { config } = useApp();
   return (
     <Link className="brand" to="/">
       <span className="brand-mark">
         <ArrowUpRight size={23} />
       </span>
-      BizLaunch<span className="brand-dot">.</span>
+      <span className="brand-name">{config.platformName || 'BizLaunch'}</span>
+      <span className="brand-dot">.</span>
     </Link>
   );
 }
 export function Layout() {
-  const { user, cart, logout, sessionError } = useApp();
+  const { user, cart, logout, sessionError, config } = useApp();
+  const notificationResource = useResource(user ? '/notifications' : null),
+    { reload } = notificationResource;
+  useEffect(() => {
+    window.addEventListener('bizlaunch:notification', reload);
+    return () => window.removeEventListener('bizlaunch:notification', reload);
+  }, [reload]);
   const [menu, setMenu] = useState(false);
   const navigate = useNavigate();
-  const dashboard =
-    user?.role === 'seller' ? '/seller' : user?.role === 'admin' ? '/admin' : '/dashboard';
+  const dashboard = ['seller', 'staff'].includes(user?.role)
+    ? '/seller'
+    : user?.role === 'admin'
+      ? '/admin'
+      : '/dashboard';
   return (
     <>
       <header className="header">
@@ -68,7 +89,10 @@ export function Layout() {
           <Brand />
           <nav className={menu ? 'top-nav open' : 'top-nav'} onClick={() => setMenu(false)}>
             <NavLink to="/marketplace">Marketplace</NavLink>
+            <NavLink to="/categories">Categories</NavLink>
+            <NavLink to="/stores">Stores</NavLink>
             {user && <NavLink to={dashboard}>Dashboard</NavLink>}
+            {user?.role === 'customer' && <NavLink to="/wishlist">Wishlist</NavLink>}
             <NavLink to="/cart">
               Cart{' '}
               <span className="count">{cart.reduce((sum, item) => sum + item.quantity, 0)}</span>
@@ -79,9 +103,18 @@ export function Layout() {
               <>
                 <Link to="/notifications" className="icon-button" aria-label="Notifications">
                   <Bell size={20} />
+                  {notificationResource.data?.unread > 0 && (
+                    <span className="notification-count">
+                      {Math.min(99, notificationResource.data.unread)}
+                    </span>
+                  )}
                 </Link>
-                <Link to={dashboard} className="avatar" title={user.name}>
-                  {user.name.slice(0, 1).toUpperCase()}
+                <Link to="/profile" className="avatar" title={user.name}>
+                  {user.avatar ? (
+                    <img src={user.avatar} alt={user.name} />
+                  ) : (
+                    user.name.slice(0, 1).toUpperCase()
+                  )}
                 </Link>
                 <Action
                   className="icon-button"
@@ -124,7 +157,12 @@ export function Layout() {
       <footer className="footer">
         <div className="container footer-inner">
           <Brand />
-          <p>Built for your next big idea.</p>
+          <div>
+            <p>Built for your next big idea.</p>
+            {config.supportEmail && (
+              <a href={'mailto:' + config.supportEmail}>{config.supportEmail}</a>
+            )}
+          </div>
           <Link to="/marketplace">
             Explore marketplace <ArrowUpRight size={15} />
           </Link>
@@ -135,7 +173,32 @@ export function Layout() {
 }
 export function Workspace() {
   const { user } = useApp();
-  const links = user.role === 'seller' ? sellerLinks : adminLinks;
+  const staffPermission = (to) =>
+    to === '/seller'
+      ? ''
+      : to.includes('inventory')
+        ? 'inventory'
+        : to.includes('business')
+          ? 'settings'
+          : to.includes('products') || to.includes('coupons')
+            ? 'products'
+            : to.includes('orders')
+              ? 'orders'
+              : to.includes('customers')
+                ? 'customers'
+                : to.includes('reviews')
+                  ? 'reviews'
+                  : 'finance';
+  const links =
+    user.role === 'staff'
+      ? sellerLinks.filter(
+          ([to]) =>
+            to === '/seller' ||
+            (to !== '/seller/team' && user.permissions?.includes(staffPermission(to))),
+        )
+      : user.role === 'seller'
+        ? sellerLinks
+        : adminLinks;
   return (
     <div className={user.role === 'admin' ? 'workspace admin-workspace' : 'workspace'}>
       <aside className="sidebar">

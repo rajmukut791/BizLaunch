@@ -9,6 +9,16 @@ const businessSchema = new Schema(
     name: { type: String, required: true, maxlength: 80 },
     slug: { type: String, required: true, unique: true },
     description: { type: String, maxlength: 2000, default: '' },
+    logo: { type: String, default: '' },
+    coverImage: { type: String, default: '' },
+    category: { type: String, default: '' },
+    type: { type: String, default: 'retail' },
+    theme: { type: String, enum: ['sage', 'midnight', 'coral'], default: 'sage' },
+    email: { type: String, default: '' },
+    socialLinks: { website: String, facebook: String, instagram: String },
+    currency: { type: String, enum: ['BDT'], default: 'BDT' },
+    deliveryOptions: { type: String, default: 'Standard delivery' },
+    returnPolicy: { type: String, default: '' },
     phone: String,
     address: String,
     verification: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
@@ -29,6 +39,8 @@ const variantSchema = new Schema(
   {
     name: { type: String, required: true },
     sku: { type: String, required: true },
+    size: { type: String, default: '' },
+    color: { type: String, default: '' },
     price: amount,
     cost: { type: Number, min: 0, default: 0 },
     stock: { type: Number, min: 0, required: true },
@@ -39,6 +51,30 @@ const productSchema = new Schema(
   {
     business: ref('Business'),
     category: ref('Category'),
+    subcategory: { type: String, default: '' },
+    sku: { type: String, default: '' },
+    brand: { type: String, default: '' },
+    size: { type: String, default: '' },
+    color: { type: String, default: '' },
+    weight: { type: Number, min: 0, default: 0 },
+    listingStatus: { type: String, enum: ['draft', 'active', 'archived'], default: 'active' },
+    regularPrice: { type: Number, min: 0, default: 0 },
+    stockMovements: [
+      new Schema(
+        {
+          type: { type: String, enum: ['PURCHASE', 'SALE', 'RETURN', 'ADJUSTMENT'] },
+          variantId: String,
+          before: Number,
+          after: Number,
+          delta: Number,
+          reference: String,
+          note: String,
+          actor: { type: Schema.Types.ObjectId, ref: 'User' },
+          at: { type: Date, default: Date.now },
+        },
+        { _id: true },
+      ),
+    ],
     name: { type: String, required: true, maxlength: 120 },
     description: { type: String, maxlength: 4000, default: '' },
     price: amount,
@@ -51,6 +87,10 @@ const productSchema = new Schema(
     reviewCount: { type: Number, default: 0 },
   },
   options,
+);
+productSchema.index(
+  { name: 'text', brand: 'text', sku: 'text', description: 'text' },
+  { weights: { name: 10, brand: 5, sku: 5, description: 1 } },
 );
 productSchema.index({ business: 1, active: 1, category: 1 });
 const lineSchema = new Schema(
@@ -77,10 +117,14 @@ const fulfillmentSchema = new Schema(
     business: ref('Business'),
     status: {
       type: String,
-      enum: ['placed', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'],
+      enum: ['placed', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'],
       default: 'placed',
     },
     trackingNumber: { type: String, default: '' },
+    paymentStatus: { type: String, enum: ['unpaid', 'paid'], default: 'unpaid' },
+    paidAt: Date,
+    collectedAmount: { type: Number, min: 0, default: 0 },
+    paymentReference: { type: String, default: '' },
     events: [eventSchema],
   },
   { _id: false },
@@ -113,7 +157,17 @@ const orderSchema = new Schema(
     checkoutKey: { type: String, required: true },
     number: { type: String, required: true, unique: true },
     items: [lineSchema],
-    shipping: { name: String, phone: String, address: String, city: String, postalCode: String },
+    shipping: {
+      name: String,
+      phone: String,
+      address: String,
+      city: String,
+      postalCode: String,
+      division: String,
+      district: String,
+      area: String,
+      deliveryMethod: String,
+    },
     paymentMethod: { type: String, enum: ['cod'], default: 'cod' },
     subtotal: amount,
     discount: amount,
@@ -122,6 +176,28 @@ const orderSchema = new Schema(
     couponCode: String,
     fulfillments: [fulfillmentSchema],
     refunds: [refundSchema],
+    returns: [
+      new Schema({
+        business: ref('Business'),
+        reason: String,
+        status: {
+          type: String,
+          enum: ['requested', 'approved', 'rejected', 'received'],
+          default: 'requested',
+        },
+        version: { type: Number, default: 0 },
+        requestedAt: Date,
+        updatedAt: Date,
+        receivedAt: Date,
+        restock: { type: Boolean, default: false },
+        events: [
+          new Schema(
+            { status: String, note: String, actor: ref('User'), at: Date },
+            { _id: false },
+          ),
+        ],
+      }),
+    ],
   },
   options,
 );
@@ -134,6 +210,9 @@ const couponSchema = new Schema(
     business: ref('Business'),
     code: { type: String, required: true, uppercase: true },
     percent: { type: Number, min: 1, max: 80 },
+    discountType: { type: String, enum: ['percentage', 'fixed'], default: 'percentage' },
+    discountValue: { type: Number, min: 0 },
+    startsAt: { type: Date, default: () => new Date(0) },
     minimum: { type: Number, min: 0, default: 0 },
     expiresAt: { type: Date, required: true },
     limit: { type: Number, min: 1, default: 100 },
@@ -160,6 +239,10 @@ const reviewSchema = new Schema(
     product: ref('Product'),
     rating: { type: Number, required: true, min: 1, max: 5 },
     comment: { type: String, required: true, maxlength: 1000 },
+    hidden: { type: Boolean, default: false },
+    moderationNote: String,
+    reply: String,
+    repliedAt: Date,
   },
   options,
 );
@@ -179,6 +262,8 @@ const reportSchema = new Schema(
     reporter: ref('User'),
     business: ref('Business'),
     reason: { type: String, required: true, maxlength: 2000 },
+    targetType: { type: String, enum: ['business', 'product', 'review'], default: 'business' },
+    targetId: { type: Schema.Types.ObjectId },
     status: { type: String, enum: ['open', 'resolved', 'dismissed'], default: 'open' },
     resolution: String,
   },
@@ -187,6 +272,7 @@ const reportSchema = new Schema(
 const checkoutSchema = new Schema({ customer: ref('User'), key: String }, options);
 checkoutSchema.index({ customer: 1, key: 1 }, { unique: true });
 const models = {
+  Wishlist: new Schema({ customer: ref('User'), product: ref('Product') }, options),
   Business: businessSchema,
   Category: categorySchema,
   Product: productSchema,
@@ -198,6 +284,7 @@ const models = {
   Report: reportSchema,
   CheckoutLock: checkoutSchema,
 };
+models.Wishlist.index({ customer: 1, product: 1 }, { unique: true });
 module.exports = Object.fromEntries(
   Object.entries(models).map(([name, schema]) => [name, mongoose.model(name, schema)]),
 );

@@ -456,6 +456,9 @@ export function AdminReports() {
                   <h2>{report.business?.name}</h2>
                   <Badge>{report.status}</Badge>
                 </div>
+                <p>
+                  <Badge>{report.targetType || 'business'}</Badge> · {report.targetId}
+                </p>
                 <p>{report.reason}</p>
                 <small className="muted">
                   Reported by {report.reporter?.name} · {date(report.createdAt)}

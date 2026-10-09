@@ -1,3 +1,4 @@
+import OrderReturns from './OrderReturns';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Package, CheckCircle2, Truck, ShoppingBag, ArrowUpRight } from 'lucide-react';
 import { useApp } from '../context/state';
@@ -13,6 +14,7 @@ const transitions = {
   shipped: ['delivered'],
   delivered: [],
   cancelled: [],
+  returned: [],
 };
 export function Orders() {
   const [params, setParams] = useSearchParams(),
@@ -245,7 +247,7 @@ export function OrderDetail() {
                     <Link
                       className="button secondary"
                       to={
-                        user.role === 'seller'
+                        ['seller', 'staff'].includes(user.role)
                           ? '/seller/orders'
                           : user.role === 'admin'
                             ? '/admin/orders'
@@ -296,6 +298,42 @@ export function OrderDetail() {
                             Tracking reference: <strong>{f.trackingNumber}</strong>
                           </p>
                         )}
+                        {f.paymentStatus === 'paid' && (
+                          <p className="info-box">
+                            COD collected: {currency(f.collectedAmount)} · {f.paymentReference}
+                          </p>
+                        )}
+                        {['seller', 'staff', 'admin'].includes(user.role) &&
+                          ['delivered', 'returned'].includes(f.status) &&
+                          f.paymentStatus !== 'paid' && (
+                            <Form
+                              submit="Record COD collection"
+                              success="Payment recorded"
+                              onSubmit={async (values) => {
+                                await api('/orders/' + id + '/payment', {
+                                  method: 'PATCH',
+                                  body: {
+                                    ...values,
+                                    business: getId(f.business),
+                                    paymentConfirmed: values.paymentConfirmed === 'on',
+                                  },
+                                });
+                                resource.reload();
+                              }}
+                            >
+                              <Field
+                                label="COD receipt reference"
+                                name="paymentReference"
+                                required
+                                minLength={3}
+                                maxLength={120}
+                              />
+                              <label className="refund-confirm">
+                                <input name="paymentConfirmed" type="checkbox" required /> Full COD
+                                amount has been collected for this store.
+                              </label>
+                            </Form>
+                          )}
                         <ol className="timeline">
                           {f.events.map((event, index) => (
                             <li key={index}>
@@ -329,7 +367,7 @@ export function OrderDetail() {
                             Cancel these items
                           </Action>
                         )}
-                        {['seller', 'admin'].includes(user.role) &&
+                        {['seller', 'staff', 'admin'].includes(user.role) &&
                           transitions[f.status].length > 0 && (
                             <Form
                               key={f.status}
@@ -338,11 +376,21 @@ export function OrderDetail() {
                               onSubmit={async (values) => {
                                 await api('/orders/' + id + '/status', {
                                   method: 'PATCH',
-                                  body: { ...values, business: getId(f.business) },
+                                  body: {
+                                    ...values,
+                                    business: getId(f.business),
+                                    paymentConfirmed: values.paymentConfirmed === 'on',
+                                  },
                                 });
                                 resource.reload();
                               }}
                             >
+                              {f.status === 'shipped' && (
+                                <label className="refund-confirm">
+                                  <input type="checkbox" name="paymentConfirmed" required />{' '}
+                                  Cash-on-delivery payment has been collected.
+                                </label>
+                              )}
                               <div className="form-grid">
                                 <Select label="Next status" name="status">
                                   {transitions[f.status].map((value) => (
@@ -362,6 +410,7 @@ export function OrderDetail() {
                           )}
                       </section>
                     ))}
+                    <OrderReturns order={order} user={user} reload={resource.reload} />
                     <OrderRefunds order={order} user={user} reload={resource.reload} />
                   </div>
                   <aside>
@@ -402,7 +451,15 @@ export function OrderDetail() {
                       <p>
                         {order.shipping.address}
                         <br />
-                        {order.shipping.city} {order.shipping.postalCode}
+                        {[
+                          order.shipping.area,
+                          order.shipping.district,
+                          order.shipping.division,
+                          order.shipping.city,
+                        ]
+                          .filter(Boolean)
+                          .join(', ')}{' '}
+                        {order.shipping.postalCode}
                       </p>
                       <p className="muted">{order.shipping.phone}</p>
                     </section>
@@ -433,6 +490,20 @@ export function CustomerDashboard() {
       <State resource={resource}>
         {resource.data && (
           <>
+            <div className="store-tabs">
+              <Link className="button secondary" to="/profile">
+                Profile
+              </Link>
+              <Link className="button secondary" to="/wishlist">
+                Wishlist
+              </Link>
+              <Link className="button secondary" to="/customer/reviews">
+                Your reviews
+              </Link>
+              <Link className="button secondary" to="/orders">
+                Purchase history
+              </Link>
+            </div>
             <div className="stats-grid">
               <div className="stat">
                 <ShoppingBag />

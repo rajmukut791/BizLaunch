@@ -111,7 +111,9 @@ export function OrderRefunds({ order, user, reload }) {
                   </Form>
                 )}
               </>
-            ) : f.status === 'delivered' && ['customer', 'admin'].includes(user.role) ? (
+            ) : ['delivered', 'returned'].includes(f.status) &&
+              f.paymentStatus === 'paid' &&
+              ['customer', 'admin'].includes(user.role) ? (
               <details>
                 <summary>Request a refund</summary>
                 <p className="muted">

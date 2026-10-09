@@ -495,6 +495,7 @@ test('reviews require delivery and order states cannot skip steps', async () => 
       {
         business: business._id,
         status,
+        paymentConfirmed: status === 'delivered',
         trackingNumber: status === 'shipped' ? 'TEST-TRACK-01' : '',
       },
       'seller',
@@ -1091,4 +1092,421 @@ test('refund review enforces ownership, eligibility, duplicate protection and pa
       (row) => row._id === target.id,
     ),
   );
+});
+
+test('wishlist is private and idempotent; review moderation updates public ratings', async () => {
+  await expect(
+    '/admin/businesses/' + String(business._id),
+    'PATCH',
+    { verification: 'approved', active: true, note: 'Approved test store' },
+    'admin',
+    200,
+  );
+  const login = await request('/auth/login', 'POST', {
+    email: 'customer@test.example',
+    password: 'TestSecret123!',
+  });
+  cookies.customer = login.cookie.split(';')[0];
+  await expect('/wishlist/' + String(product._id), 'PUT', {}, 'customer', 200);
+  await expect('/wishlist/' + String(product._id), 'PUT', {}, 'customer', 200);
+  assert.equal(
+    (await expect('/wishlist', 'GET', undefined, 'customer', 200)).products.filter(
+      (p) => p._id === String(product._id),
+    ).length,
+    1,
+  );
+  assert.equal((await expect('/wishlist', 'GET', undefined, 'customer2', 200)).products.length, 0);
+  await expect('/wishlist', 'GET', undefined, 'seller', 403);
+  const review = await Review.findOne({ product: product._id });
+  await expect(
+    '/seller/reviews/' + review.id + '/reply',
+    'PATCH',
+    { reply: 'Thank you for supporting our business.' },
+    'seller',
+    200,
+  );
+  await expect(
+    '/seller/reviews/' + review.id + '/reply',
+    'PATCH',
+    { reply: 'Cannot manage this store.' },
+    'seller2',
+    404,
+  );
+  await expect(
+    '/admin/reviews/' + review.id,
+    'PATCH',
+    { hidden: true, note: 'Review hidden for moderation test.' },
+    'admin',
+    200,
+  );
+  assert.equal(
+    (await expect('/products/' + String(product._id), 'GET', undefined, undefined, 200)).product
+      .reviewCount,
+    0,
+  );
+  await expect(
+    '/admin/reviews/' + review.id,
+    'PATCH',
+    { hidden: false, note: 'Review restored after checking.' },
+    'admin',
+    200,
+  );
+  assert.equal(
+    (await expect('/products/' + String(product._id), 'GET', undefined, undefined, 200)).product
+      .reviewCount,
+    1,
+  );
+  const customers = await expect('/seller/customers?q=customer', 'GET', undefined, 'seller', 200);
+  assert.ok(customers.summary.total >= 1);
+  assert.ok(customers.customers.every((c) => Number.isFinite(c.purchase)));
+  const insights = await expect('/seller/insights', 'GET', undefined, 'seller', 200);
+  assert.equal(insights.insights.range.timezone, 'Asia/Dhaka');
+  assert.ok(insights.insights.topProducts.length);
+  await expect('/seller/insights?from=2026-02-30', 'GET', undefined, 'seller', 400);
+});
+test('inventory changes retain a scoped ledger and reject stale or negative stock', async () => {
+  const current = await Product.findById(String(product._id)),
+    before = current.stock;
+  await expect(
+    '/seller/inventory/' + String(product._id) + '/adjust',
+    'POST',
+    { delta: 4, type: 'PURCHASE', note: 'New purchase received.', version: current.__v },
+    'seller',
+    200,
+  );
+  await expect(
+    '/seller/inventory/' + String(product._id) + '/adjust',
+    'POST',
+    { delta: 4, type: 'PURCHASE', note: 'Stale stock change.', version: current.__v },
+    'seller',
+    409,
+  );
+  const updated = await Product.findById(String(product._id));
+  assert.equal(updated.stock, before + 4);
+  await expect(
+    '/seller/inventory/' + String(product._id) + '/adjust',
+    'POST',
+    { delta: -100000, type: 'ADJUSTMENT', note: 'Invalid stock change.', version: updated.__v },
+    'seller',
+    400,
+  );
+  await expect(
+    '/seller/inventory/' + String(product._id) + '/adjust',
+    'POST',
+    { delta: 2, type: 'PURCHASE', note: 'Other store access.', version: updated.__v },
+    'seller2',
+    404,
+  );
+  const history = await expect(
+    '/seller/inventory/history?product=' + String(product._id),
+    'GET',
+    undefined,
+    'seller',
+    200,
+  );
+  assert.ok(history.movements.some((m) => m.entry.type === 'SALE'));
+  assert.ok(
+    (await expect('/seller/inventory/history?type=RETURN', 'GET', undefined, 'seller', 200))
+      .movements.length,
+  );
+  assert.equal(history.movements[0].entry.after, before + 4);
+  assert.equal(
+    (
+      await expect(
+        '/seller/inventory/history?product=' + String(product._id),
+        'GET',
+        undefined,
+        'seller2',
+        200,
+      )
+    ).total,
+    0,
+  );
+});
+test('staff invitations require the invited verified email and enforce inventory-only access', async () => {
+  const Member = require('../models/BusinessMember');
+  await Member.init();
+  const staff = await User.create({
+    name: 'Inventory Colleague',
+    email: 'staff@test.example',
+    password: 'TestSecret123!',
+    role: 'customer',
+    emailVerified: true,
+  });
+  const login = await request('/auth/login', 'POST', {
+    email: staff.email,
+    password: 'TestSecret123!',
+  });
+  cookies.staff = login.cookie.split(';')[0];
+  await expect('/seller/team', 'POST', { email: staff.email, job: 'inventory' }, 'seller', 201);
+  const delivery = require('../services/mail').testDelivery(staff.email);
+  await expect('/team-invites/accept', 'POST', { token: delivery.token }, 'customer', 400);
+  await expect('/team-invites/accept', 'POST', { token: delivery.token }, 'staff', 200);
+  await expect('/profile', 'GET', undefined, 'staff', 401);
+  const signed = await request('/auth/login', 'POST', {
+    email: staff.email,
+    password: 'TestSecret123!',
+  });
+  cookies.staff = signed.cookie.split(';')[0];
+  assert.equal(signed.data.user.role, 'staff');
+  assert.deepEqual(signed.data.user.permissions, ['inventory']);
+  await expect('/seller/analytics', 'GET', undefined, 'staff', 403);
+  await expect('/orders', 'GET', undefined, 'staff', 403);
+  await expect('/seller/team', 'GET', undefined, 'staff', 403);
+  await expect('/seller/expenses', 'GET', undefined, 'staff', 403);
+  const products = (await expect('/seller/products', 'GET', undefined, 'staff', 200)).products;
+  assert.equal(products[0].cost, undefined);
+  const current = await Product.findById(String(product._id));
+  await expect(
+    '/seller/inventory/' + String(product._id) + '/adjust',
+    'POST',
+    { delta: 1, type: 'PURCHASE', note: 'Staff inspected delivery.', version: current.__v },
+    'staff',
+    200,
+  );
+  await expect(
+    '/seller/products/' + String(product._id),
+    'PATCH',
+    { name: 'Unauthorized edit', version: current.__v },
+    'staff',
+    403,
+  );
+  const member = await Member.findOne({ user: staff._id, status: 'active' });
+
+  await expect('/seller/team/' + member.id, 'PATCH', { job: 'manager' }, 'seller', 200);
+  const managerLogin = await request('/auth/login', 'POST', {
+    email: staff.email,
+    password: 'TestSecret123!',
+  });
+  cookies.staff = managerLogin.cookie.split(';')[0];
+  assert.equal(
+    (await expect('/seller/business', 'GET', undefined, 'staff', 200)).business._id,
+    String(business._id),
+  );
+  await expect(
+    '/seller/business',
+    'POST',
+    {
+      name: 'Unauthorized extra store',
+      slug: 'unauthorized-extra',
+      phone: '01712345678',
+      address: 'Test Address',
+    },
+    'staff',
+    403,
+  );
+  await expect('/seller/team/' + member.id, 'PATCH', { status: 'revoked' }, 'seller', 200);
+  await expect('/seller/products', 'GET', undefined, 'staff', 401);
+});
+
+test('fixed coupons enforce start dates, allocated discounts and editable unused terms', async () => {
+  const created = await expect(
+    '/seller/coupons',
+    'POST',
+    {
+      code: 'FIXEDTEST',
+      discountType: 'fixed',
+      discountValue: 50,
+      minimum: 0,
+      limit: 5,
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+    },
+    'seller',
+    201,
+  );
+  const quote = await expect(
+    '/checkout/quote',
+    'POST',
+    { items: [{ product: product._id, quantity: 1 }], couponCode: 'FIXEDTEST' },
+    'customer',
+    200,
+  );
+  assert.equal(quote.quote.discount, 50);
+  const scheduled = await expect(
+    '/seller/coupons',
+    'POST',
+    {
+      code: 'LATERTEST',
+      percent: 10,
+      startsAt: new Date(Date.now() + 86400000).toISOString(),
+      expiresAt: new Date(Date.now() + 2 * 86400000).toISOString(),
+    },
+    'seller',
+    201,
+  );
+  await expect(
+    '/checkout/quote',
+    'POST',
+    { items: [{ product: product._id, quantity: 1 }], couponCode: 'LATERTEST' },
+    'customer',
+    400,
+  );
+  await expect(
+    '/seller/coupons/' + created.coupon._id,
+    'PATCH',
+    {
+      code: 'FIXEDTEST',
+      discountType: 'fixed',
+      discountValue: 60,
+      minimum: 0,
+      limit: 5,
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      version: created.coupon.__v,
+    },
+    'seller',
+    200,
+  );
+  await expect('/seller/coupons/' + created.coupon._id, 'DELETE', {}, 'seller2', 409);
+  await expect('/seller/coupons/' + created.coupon._id, 'DELETE', {}, 'seller', 200);
+  await expect('/seller/coupons/' + scheduled.coupon._id, 'DELETE', {}, 'seller', 200);
+});
+test('inspected returns restore stock once and reverse product costs without inventing a refund', async () => {
+  const target = await Order.findById(order._id),
+    businessId = String(business._id),
+    path = '/orders/' + target.id + '/returns';
+  const body = { business: businessId, reason: 'Items returned for inspection and replacement.' };
+  await expect(path, 'POST', body, 'customer2', 403);
+  await expect(path, 'POST', body, 'customer', 201);
+  await expect(path, 'POST', body, 'customer', 409);
+  const entry = (await Order.findById(target.id)).returns[0],
+    review = path + '/' + entry.id;
+  await expect(
+    review,
+    'PATCH',
+    { status: 'approved', note: 'Approved return for inspection.', version: 0 },
+    'seller2',
+    403,
+  );
+  await expect(
+    review,
+    'PATCH',
+    { status: 'approved', note: 'Approved return for inspection.', version: 0 },
+    'seller',
+    200,
+  );
+  const before = (await expect('/seller/analytics', 'GET', undefined, 'seller', 200)).analytics;
+  const stock = (await Product.findById(product._id)).stock;
+  const received = {
+    status: 'received',
+    note: 'All items received in saleable condition.',
+    version: 1,
+    restock: true,
+  };
+  await expect(review, 'PATCH', received, 'seller', 400);
+  const receipts = await Promise.all([
+    request(review, 'PATCH', { ...received, receivedConfirmed: true }, 'seller'),
+    request(review, 'PATCH', { ...received, receivedConfirmed: true }, 'seller'),
+  ]);
+  assert.deepEqual(receipts.map((r) => r.status).sort(), [200, 409]);
+  const lines = target.items.filter((i) => String(i.business) === businessId),
+    quantity = lines.reduce((sum, i) => sum + i.quantity, 0),
+    cost = lines.reduce((sum, i) => sum + i.cost * i.quantity, 0);
+  assert.equal((await Product.findById(product._id)).stock, stock + quantity);
+  const after = (await expect('/seller/analytics', 'GET', undefined, 'seller', 200)).analytics;
+  assert.equal(after.revenue, before.revenue);
+  assert.equal(after.cost, before.cost - cost);
+  assert.equal(after.profit, before.profit + cost);
+  const detail = (await expect('/orders/' + target.id, 'GET', undefined, 'customer', 200)).order;
+  assert.equal(detail.fulfillments[0].status, 'returned');
+  assert.equal(detail.refundedTotal, 10);
+  assert.ok(
+    (await expect('/orders?status=returned', 'GET', undefined, 'admin', 200)).orders.some(
+      (o) => o._id === target.id,
+    ),
+  );
+});
+test('cart snapshots are private and server priced; platform settings are admin-only and versioned', async () => {
+  await expect(
+    '/cart',
+    'PUT',
+    { items: [{ product: product._id, quantity: 2, price: 1 }] },
+    'customer',
+    200,
+  );
+  const cart = await expect('/cart', 'GET', undefined, 'customer', 200);
+  assert.equal(cart.items[0].price, (await Product.findById(product._id)).price);
+  assert.equal((await expect('/cart', 'GET', undefined, 'customer2', 200)).items.length, 0);
+  await expect('/cart', 'GET', undefined, 'seller', 403);
+  await expect(
+    '/cart',
+    'PUT',
+    { items: [{ product: product._id, quantity: 101 }] },
+    'customer',
+    400,
+  );
+  const current = (await expect('/admin/settings', 'GET', undefined, 'admin', 200)).settings;
+  await expect('/admin/settings', 'GET', undefined, 'customer', 403);
+  const values = {
+    platformName: 'BizLaunch',
+    supportEmail: 'help@test.example',
+    supportPhone: '01712345678',
+    allowRegistration: false,
+    version: current.version,
+  };
+  await expect('/admin/settings', 'PATCH', values, 'admin', 200);
+  try {
+    await expect('/admin/settings', 'PATCH', values, 'admin', 409);
+    await expect(
+      '/auth/register',
+      'POST',
+      { name: 'Paused registration', email: 'paused@test.example', password: 'TestSecret123!' },
+      undefined,
+      503,
+    );
+    assert.equal(
+      (await expect('/platform/config', 'GET', undefined, undefined, 200)).config.allowRegistration,
+      false,
+    );
+  } finally {
+    const latest = (await expect('/admin/settings', 'GET', undefined, 'admin', 200)).settings;
+    await expect(
+      '/admin/settings',
+      'PATCH',
+      { ...values, allowRegistration: true, version: latest.version },
+      'admin',
+      200,
+    );
+  }
+});
+
+test('real-time notifications authenticate cookies and isolate each user room', async () => {
+  const { io } = require('socket.io-client'),
+    sockets = [];
+  const connect = (cookie) =>
+    new Promise((resolve, reject) => {
+      const socket = io(base.replace('/api', ''), {
+        transports: ['websocket'],
+        extraHeaders: { Origin: process.env.CLIENT_URL, ...(cookie ? { Cookie: cookie } : {}) },
+        reconnection: false,
+        timeout: 3000,
+      });
+      sockets.push(socket);
+      socket.once('connect', () => resolve(socket));
+      socket.once('connect_error', reject);
+    });
+  try {
+    await assert.rejects(connect(), /Authentication required/);
+    const customer = await connect(cookies.customer),
+      other = await connect(cookies.customer2),
+      received = [];
+    other.on('notification', (data) => received.push(data));
+    const event = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Live notification not delivered')), 3000);
+      customer.once('notification', (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      });
+    });
+    await require('../services/commerce').notify(
+      users.customer.id,
+      'Private socket test',
+      'Only this account should receive this message.',
+      '/notifications',
+    );
+    assert.equal((await event).title, 'Private socket test');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(received.length, 0);
+  } finally {
+    for (const socket of sockets) socket.disconnect();
+  }
 });

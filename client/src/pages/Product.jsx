@@ -1,14 +1,15 @@
+import ReportConcern from '../components/ReportConcern';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Star, ShoppingBag, ShieldCheck, Truck } from 'lucide-react';
+import { Star, Heart, ShoppingBag, ShieldCheck, Truck } from 'lucide-react';
 import { useResource } from '../lib/hooks';
 import { api, currency, date } from '../lib/api';
 import { useApp } from '../context/state';
-import { State, Form, Field, Textarea, Select, ProductImage, Badge } from '../components/UI';
+import { State, Form, Textarea, Select, ProductImage, Badge, Action } from '../components/UI';
 export default function Product() {
   const { id } = useParams(),
     resource = useResource('/products/' + id),
-    { user, add } = useApp();
+    { user, add, notify } = useApp();
   const [variantId, setVariant] = useState(''),
     [quantity, setQuantity] = useState(1),
     [image, setImage] = useState(0);
@@ -64,6 +65,35 @@ export default function Product() {
                     </div>
                     <p className="detail-price">{currency(variant?.price ?? product.price)}</p>
                     <p className="description">{product.description}</p>
+                    {product.regularPrice > product.price && (
+                      <p className="muted">
+                        Regular price <del>{currency(product.regularPrice)}</del>
+                      </p>
+                    )}
+                    <div className="badges">
+                      {[
+                        product.brand,
+                        product.sku,
+                        product.size,
+                        product.color,
+                        product.weight ? product.weight + ' kg' : '',
+                      ]
+                        .filter(Boolean)
+                        .map((value) => (
+                          <Badge key={value}>{value}</Badge>
+                        ))}
+                    </div>
+                    {user?.role === 'customer' && (
+                      <Action
+                        onClick={async () => {
+                          await api('/wishlist/' + id, { method: 'PUT', body: {} });
+                          notify('Saved to wishlist');
+                        }}
+                      >
+                        <Heart size={17} /> Save to wishlist
+                      </Action>
+                    )}
+
                     {product.variants.length > 0 && (
                       <Select
                         label="Choose a variant"
@@ -127,7 +157,19 @@ export default function Product() {
                               <span className="rating">{'★'.repeat(review.rating)}</span>
                             </div>
                             <p>{review.comment}</p>
+                            {review.reply && (
+                              <blockquote>
+                                <strong>Seller reply</strong>
+                                <p>{review.reply}</p>
+                              </blockquote>
+                            )}
                             <small className="muted">{date(review.createdAt)}</small>
+                            <ReportConcern
+                              business={product.business._id}
+                              targetType="review"
+                              targetId={review._id}
+                              label="Report this review"
+                            />
                           </article>
                         ))
                       ) : (
@@ -172,29 +214,12 @@ export default function Product() {
                     )}
                   </div>
                 </section>
-                {user && (
-                  <details className="report-form">
-                    <summary>Report a problem with this business</summary>
-                    <Form
-                      submit="Submit report"
-                      success="Your report was sent to the administrator"
-                      onSubmit={(values) =>
-                        api('/reports', {
-                          method: 'POST',
-                          body: { ...values, business: product.business._id },
-                        })
-                      }
-                    >
-                      <Field
-                        label="What happened?"
-                        name="reason"
-                        required
-                        minLength={10}
-                        maxLength={2000}
-                      />
-                    </Form>
-                  </details>
-                )}
+                <ReportConcern
+                  business={product.business._id}
+                  targetType="product"
+                  targetId={id}
+                  label="Report this product"
+                />
               </>
             );
           })()}
