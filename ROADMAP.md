@@ -21,3 +21,5 @@ Additional modules: permission-based staff invitations, persistent wishlist/prof
 Verification: 41 API/mail tests, 39 commerce tests on a replica set, 15 browser workflows, lint and production build. Tests use isolated databases and preserve normal user accounts.
 
 MongoDB is required to run the API now. Production transactions require Atlas or a replica set. Gmail SMTP is configured locally. Cloudinary adapter is implemented; live cloud upload awaits credentials, while local uploads are available. A public deployment requires hosting/domain configuration. GitHub publication is reported only after a successful push.
+
+GitHub publication completed on 2026-10-09: [rajmukut791/BizLaunch](https://github.com/rajmukut791/BizLaunch), branch `main`.
